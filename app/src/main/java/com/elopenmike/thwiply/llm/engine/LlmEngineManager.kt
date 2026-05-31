@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.map
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,7 +29,13 @@ class LlmEngineManager @Inject constructor() {
     fun generateStream(prompt: String): Flow<String> {
         val currentEngine = engine ?: throw IllegalStateException("Engine not initialized")
         val conversation = currentEngine.createConversation()
-        return conversation.sendMessageAsync(prompt).flowOn(Dispatchers.IO)
+        return conversation.sendMessageAsync(prompt)
+            .map { message -> 
+                message.contents.contents
+                    .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                    .joinToString("") { it.text }
+            }
+            .flowOn(Dispatchers.IO)
     }
     
     fun close() {

@@ -12,12 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import dagger.hilt.android.AndroidEntryPoint
 import thwiply.elopenmike.com.llm.model.ModelManager
 import thwiply.elopenmike.com.ui.main.MainAppScreen
 import thwiply.elopenmike.com.ui.onboarding.OnboardingScreen
 import thwiply.elopenmike.com.ui.theme.ThemeManager
 import thwiply.elopenmike.com.ui.theme.ThwiplyTheme
-import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint

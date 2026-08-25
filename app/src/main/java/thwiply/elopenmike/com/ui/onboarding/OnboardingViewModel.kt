@@ -2,16 +2,16 @@ package thwiply.elopenmike.com.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import thwiply.elopenmike.com.llm.model.DownloadState
-import thwiply.elopenmike.com.llm.model.ModelManager
-import thwiply.elopenmike.com.llm.model.ModelPreset
-import thwiply.elopenmike.com.ui.theme.ThemeManager
-import thwiply.elopenmike.com.ui.theme.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import thwiply.elopenmike.com.llm.model.DownloadState
+import thwiply.elopenmike.com.llm.model.ModelManager
+import thwiply.elopenmike.com.llm.model.ModelPreset
+import thwiply.elopenmike.com.ui.theme.ThemeManager
+import thwiply.elopenmike.com.ui.theme.ThemeMode
 import javax.inject.Inject
 
 @HiltViewModel

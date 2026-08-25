@@ -15,7 +15,7 @@
 - **Language:** Kotlin (Modern Idiomatic)
 - **UI:** Jetpack Compose with Material 3
 - **LLM Runtime:** [LiteRT-LM](https://ai.google.dev/edge/litert) (formerly MediaPipe LLM Inference)
-- **Model:** Gemma 3 1B IT (Quantized int4)
+- **Model:** Qwen 2.5 1.5B Instruct (Default, ungated) / Gemma 3 1B IT (Quantized int4)
 - **DI:** Hilt
 - **Async:** Coroutines + Flow
 - **Persistence:** Room (v2)
@@ -26,7 +26,7 @@
 ### Prerequisites
 - Android device or emulator with **Min SDK 31 (Android 12)**.
 - Pixel 6 or newer (or equivalent) is recommended for smooth LLM inference.
-- **Hugging Face Token:** The Gemma 3 model is gated. You'll need a Hugging Face account and a Read token.
+- *(Optional)* **Hugging Face Token:** Only needed if you choose the license-gated **Gemma 3** model instead of the default ungated **Qwen 2.5** model.
 
 ### Installation
 1. Clone the repository:
@@ -37,9 +37,9 @@
 3. Build and run the app.
 
 ### First Launch (The Onboarding)
-On the first launch, Thwiply will guide you through a one-time download of the AI model (~550 MB). 
-- Provide a **Model URL** (default points to Hugging Face).
-- Provide your **Hugging Face Read Token** if the model is gated.
+On the first launch, Thwiply will guide you through a one-time download of the AI model. 
+- Default preset is **Qwen 2.5 1.5B** (100% ungated, 1-click download, no accounts/tokens needed).
+- Or switch to **Gemma 3 1B** or enter a custom model URL.
 - Once the download completes and integrity is verified, you can access the **LLM Debug Inference** screen to test the model.
 
 ## 🗺️ Roadmap

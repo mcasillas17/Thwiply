@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.elopenmike.thwiply"
+    namespace = "thwiply.elopenmike.com"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.elopenmike.thwiply"
+        applicationId = "thwiply.elopenmike.com"
         minSdk = 31
         targetSdk = 36
         versionCode = 1

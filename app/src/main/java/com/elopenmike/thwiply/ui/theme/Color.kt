@@ -2,9 +2,9 @@ package com.elopenmike.thwiply.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Electric Light Blue Color Tokens
+// Electric Blue Color Tokens
 
-// Light Palette
+// Light Palette (Crisp Porcelain & Electric Blue)
 val ElectricBluePrimaryLight = Color(0xFF00687A)
 val ElectricBlueOnPrimaryLight = Color(0xFFFFFFFF)
 val ElectricBluePrimaryContainerLight = Color(0xFFC0EBF4)
@@ -28,30 +28,30 @@ val ElectricBlueSurfaceVariantLight = Color(0xFFDBE4E7)
 val ElectricBlueOnSurfaceVariantLight = Color(0xFF3F484B)
 val ElectricBlueOutlineLight = Color(0xFF70797B)
 
-// Dark Palette (Sleek Obsidian & Vivid Electric Cyan)
-val ElectricBluePrimaryDark = Color(0xFF00E5FF)
-val ElectricBlueOnPrimaryDark = Color(0xFF003640)
-val ElectricBluePrimaryContainerDark = Color(0xFF004E5C)
-val ElectricBlueOnPrimaryContainerDark = Color(0xFFBFE8F3)
+// Dark Palette (Deeper, Richer Electric Sapphire & Deep Obsidian Slate)
+val ElectricBluePrimaryDark = Color(0xFF00A3FF)
+val ElectricBlueOnPrimaryDark = Color(0xFF002330)
+val ElectricBluePrimaryContainerDark = Color(0xFF003D54)
+val ElectricBlueOnPrimaryContainerDark = Color(0xFFBFE8F8)
 
-val ElectricBlueSecondaryDark = Color(0xFFB2CBD2)
-val ElectricBlueOnSecondaryDark = Color(0xFF1D343A)
-val ElectricBlueSecondaryContainerDark = Color(0xFF334A51)
+val ElectricBlueSecondaryDark = Color(0xFF90C2D6)
+val ElectricBlueOnSecondaryDark = Color(0xFF0C2F3B)
+val ElectricBlueSecondaryContainerDark = Color(0xFF224552)
 val ElectricBlueOnSecondaryContainerDark = Color(0xFFCEE7EE)
 
-val ElectricBlueTertiaryDark = Color(0xFF6ED2FF)
+val ElectricBlueTertiaryDark = Color(0xFF38BDF8)
 val ElectricBlueOnTertiaryDark = Color(0xFF003547)
 val ElectricBlueTertiaryContainerDark = Color(0xFF004D66)
 val ElectricBlueOnTertiaryContainerDark = Color(0xFFBFE8FF)
 
-val ElectricBlueBackgroundDark = Color(0xFF0E151A)
+val ElectricBlueBackgroundDark = Color(0xFF0B1319)
 val ElectricBlueOnBackgroundDark = Color(0xFFE0E3E4)
-val ElectricBlueSurfaceDark = Color(0xFF131D24)
+val ElectricBlueSurfaceDark = Color(0xFF101B24)
 val ElectricBlueOnSurfaceDark = Color(0xFFE0E3E4)
-val ElectricBlueSurfaceVariantDark = Color(0xFF1D2A33)
-val ElectricBlueOnSurfaceVariantDark = Color(0xFFBFC8CB)
-val ElectricBlueOutlineDark = Color(0xFF43535C)
+val ElectricBlueSurfaceVariantDark = Color(0xFF162531)
+val ElectricBlueOnSurfaceVariantDark = Color(0xFFB8C5CA)
+val ElectricBlueOutlineDark = Color(0xFF385060)
 
 // Accents
-val ElectricCyanAccent = Color(0xFF00F0FF)
-val ElectricCyanGlow = Color(0x3300F0FF)
+val ElectricCyanAccent = Color(0xFF00A3FF)
+val ElectricCyanGlow = Color(0x3300A3FF)

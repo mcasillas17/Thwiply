@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.elopenmike.thwiply.llm.model.DownloadState
 import com.elopenmike.thwiply.llm.model.ModelManager
 import com.elopenmike.thwiply.llm.model.ModelPreset
+import com.elopenmike.thwiply.ui.theme.ThemeManager
 import com.elopenmike.thwiply.ui.theme.ThemeMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,11 +16,11 @@ import javax.inject.Inject
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
-    private val modelManager: ModelManager
+    private val modelManager: ModelManager,
+    private val themeManager: ThemeManager
 ) : ViewModel() {
 
-    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
-    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+    val themeMode: StateFlow<ThemeMode> = themeManager.themeMode
 
     private val _uiState = MutableStateFlow<DownloadState>(
         if (modelManager.isModelAvailable()) DownloadState.Success else DownloadState.Idle
@@ -36,7 +37,7 @@ class OnboardingViewModel @Inject constructor(
     val hfToken: StateFlow<String> = _hfToken.asStateFlow()
 
     fun setThemeMode(mode: ThemeMode) {
-        _themeMode.value = mode
+        themeManager.setThemeMode(mode)
     }
 
     fun selectPreset(preset: ModelPreset) {

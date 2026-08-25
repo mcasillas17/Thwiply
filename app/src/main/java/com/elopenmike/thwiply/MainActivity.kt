@@ -3,7 +3,6 @@ package com.elopenmike.thwiply
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -13,21 +12,27 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.elopenmike.thwiply.ui.debug.DebugScreen
+import com.elopenmike.thwiply.llm.model.ModelManager
+import com.elopenmike.thwiply.ui.main.MainAppScreen
 import com.elopenmike.thwiply.ui.onboarding.OnboardingScreen
-import com.elopenmike.thwiply.ui.onboarding.OnboardingViewModel
+import com.elopenmike.thwiply.ui.theme.ThemeManager
 import com.elopenmike.thwiply.ui.theme.ThwiplyTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private val onboardingViewModel: OnboardingViewModel by viewModels()
+    @Inject
+    lateinit var themeManager: ThemeManager
+
+    @Inject
+    lateinit var modelManager: ModelManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            val themeMode by onboardingViewModel.themeMode.collectAsState()
+            val themeMode by themeManager.themeMode.collectAsState()
 
             ThwiplyTheme(themeMode = themeMode) {
                 Surface(
@@ -35,19 +40,24 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val navController = rememberNavController()
-                    NavHost(navController = navController, startDestination = "onboarding") {
+                    val startDest = if (modelManager.isModelAvailable()) "main" else "onboarding"
+
+                    NavHost(navController = navController, startDestination = startDest) {
                         composable("onboarding") {
                             OnboardingScreen(
                                 onDownloadComplete = {
-                                    navController.navigate("debug") {
+                                    navController.navigate("main") {
                                         popUpTo("onboarding") { inclusive = true }
                                     }
-                                },
-                                viewModel = onboardingViewModel
+                                }
                             )
                         }
-                        composable("debug") {
-                            DebugScreen()
+                        composable("main") {
+                            MainAppScreen(
+                                onNavigateToOnboarding = {
+                                    navController.navigate("onboarding")
+                                }
+                            )
                         }
                     }
                 }

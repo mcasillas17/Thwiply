@@ -328,10 +328,10 @@ validation.
 Run:
 
 ```bash
-./gradlew tasks --all --console=plain | grep -E '^(assembleDebug|lint|test) '
+./gradlew tasks --all --console=plain | grep -E '^app:(assembleDebug|lint|test) '
 ```
 
-Expected: output includes `assembleDebug`, `lint`, and `test`.
+Expected: output includes `app:assembleDebug`, `app:lint`, and `app:test`.
 
 - [ ] **Step 3: Run the complete CI validation**
 

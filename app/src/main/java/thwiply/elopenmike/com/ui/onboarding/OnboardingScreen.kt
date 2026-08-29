@@ -27,8 +27,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,11 +47,6 @@ fun OnboardingScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val selectedPreset by viewModel.selectedPreset.collectAsState()
-    val customUrl by viewModel.customUrl.collectAsState()
-    val hfToken by viewModel.hfToken.collectAsState()
-
-    val uriHandler = LocalUriHandler.current
-    val clipboardManager = LocalClipboardManager.current
 
     LaunchedEffect(state) {
         if (state is DownloadState.Success) {
@@ -112,7 +105,7 @@ fun OnboardingScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
-                // Qwen 2.5 1.5B Card (Default • 1-Click)
+                // The release build exposes only models with pinned verification metadata.
                 ModelSelectionCard(
                     preset = ModelPreset.QWEN_2_5_1_5B,
                     isSelected = selectedPreset.id == ModelPreset.QWEN_2_5_1_5B.id,
@@ -121,124 +114,10 @@ fun OnboardingScreen(
                     onClick = { if (!isDownloading) viewModel.selectPreset(ModelPreset.QWEN_2_5_1_5B) }
                 ) {
                     Text(
-                        text = "⚡ Instant download with zero accounts or tokens. Exceptional structured task extraction.",
+                        text = ModelPreset.QWEN_2_5_1_5B.description,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-
-                // Gemma 3 1B Card (Google AI Edge • Gated)
-                ModelSelectionCard(
-                    preset = ModelPreset.GEMMA_3_1B,
-                    isSelected = selectedPreset.id == ModelPreset.GEMMA_3_1B.id,
-                    badgeColor = MaterialTheme.colorScheme.secondaryContainer,
-                    badgeTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    onClick = { if (!isDownloading) viewModel.selectPreset(ModelPreset.GEMMA_3_1B) }
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "Ultra-compact Google model (~550 MB). Requires accepting license terms on Hugging Face.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-
-                        // Expandable Token Setup when selected
-                        AnimatedVisibility(visible = selectedPreset.id == ModelPreset.GEMMA_3_1B.id) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // Step Buttons Row
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = { uriHandler.openUri("https://huggingface.co/google/gemma-3-1b-it") },
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("1. Accept License ↗", style = MaterialTheme.typography.labelSmall)
-                                    }
-
-                                    FilledTonalButton(
-                                        onClick = { uriHandler.openUri("https://huggingface.co/settings/tokens") },
-                                        modifier = Modifier.weight(1f),
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-                                        shape = RoundedCornerShape(10.dp)
-                                    ) {
-                                        Text("2. Get Token ↗", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-
-                                // Token Input with Clipboard Paste
-                                OutlinedTextField(
-                                    value = hfToken,
-                                    onValueChange = { viewModel.updateHfToken(it) },
-                                    label = { Text("Hugging Face Read Token (hf_...)") },
-                                    placeholder = { Text("hf_xxxxxxxxxxxxxxxxxxxx") },
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                val clip = clipboardManager.getText()?.text
-                                                if (!clip.isNullOrBlank()) {
-                                                    viewModel.updateHfToken(clip.trim())
-                                                }
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.ContentPaste,
-                                                contentDescription = "Paste Token",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    enabled = !isDownloading,
-                                    shape = RoundedCornerShape(12.dp),
-                                    singleLine = true
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Custom Model Card (Advanced)
-                ModelSelectionCard(
-                    preset = ModelPreset.CUSTOM,
-                    isSelected = selectedPreset.id == ModelPreset.CUSTOM.id,
-                    badgeColor = MaterialTheme.colorScheme.surfaceVariant,
-                    badgeTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    onClick = { if (!isDownloading) viewModel.selectPreset(ModelPreset.CUSTOM) }
-                ) {
-                    AnimatedVisibility(visible = selectedPreset.id == ModelPreset.CUSTOM.id) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = customUrl,
-                                onValueChange = { viewModel.updateCustomUrl(it) },
-                                label = { Text("Direct HTTPS URL (.litertlm)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isDownloading,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            OutlinedTextField(
-                                value = hfToken,
-                                onValueChange = { viewModel.updateHfToken(it) },
-                                label = { Text("Auth Token (Optional)") },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = !isDownloading,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                    }
                 }
             }
 
@@ -327,7 +206,7 @@ private fun HeroBanner() {
             )
 
             Text(
-                text = "Thwips actionable tasks out of the noise. Notifications and screenshots stay 100% on your device silicon.",
+                text = "Run the local inference lab on your device. Notification triage is not enabled in this alpha.",
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -417,17 +296,17 @@ private fun ValuePropsRow() {
     ) {
         ValuePropBadge(
             icon = Icons.Default.Security,
-            label = "100% Local",
+            label = "Local AI",
             modifier = Modifier.weight(1f)
         )
         ValuePropBadge(
             icon = Icons.Default.Bolt,
-            label = "Zero Cloud",
+            label = "Verified Model",
             modifier = Modifier.weight(1f)
         )
         ValuePropBadge(
             icon = Icons.Default.TaskAlt,
-            label = "Smart Tasks",
+            label = "Alpha Lab",
             modifier = Modifier.weight(1f)
         )
     }

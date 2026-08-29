@@ -11,6 +11,7 @@ composeBom = "2026.02.01"
 ksp = "2.2.10-2.0.2"
 hilt = "2.59.2"
 okhttp = "4.12.0"
+mockwebserver = "4.12.0"
 litertlm = "0.12.0"
 navCompose = "2.7.7"
 hiltNavCompose = "1.2.0"
@@ -36,6 +37,7 @@ hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }
 androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavCompose" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
 litertlm = { group = "com.google.ai.edge.litertlm", name = "litertlm-android", version.ref = "litertlm" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navCompose" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }

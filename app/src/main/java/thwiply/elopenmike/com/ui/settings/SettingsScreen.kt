@@ -25,12 +25,10 @@ import thwiply.elopenmike.com.ui.theme.ThemeMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    onNavigateToOnboarding: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val themeMode by viewModel.themeMode.collectAsState()
-    val notificationCapture by viewModel.notificationCaptureEnabled.collectAsState()
-    val screenshotCapture by viewModel.screenshotCaptureEnabled.collectAsState()
+    val activeModel by viewModel.activeModel.collectAsState()
 
     val uriHandler = LocalUriHandler.current
 
@@ -123,9 +121,13 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Qwen 2.5 1.5B Instruct",
+                                text = activeModel?.name ?: "No verified model installed",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = if (activeModel != null) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
@@ -135,7 +137,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Text(
-                                text = "Ready • ~900 MB",
+                                text = activeModel?.let { "Ready • ${it.size}" } ?: "Setup needed",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -145,86 +147,34 @@ fun SettingsScreen(
                     }
 
                     Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Inference Runtime",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "LiteRT-LM (Google AI Edge)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = onNavigateToOnboarding,
-                            shape = RoundedCornerShape(10.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Switch Model", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
+                    Text(
+                        text = "LiteRT-LM runs inference locally. Internet access is used to download the pinned model file.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
-            // Section 3: Automated Capture (v2 Preview)
-            SettingsSection(title = "Automated Capture") {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "Notification Listener",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Extracts tasks from messaging & email notifications",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = notificationCapture,
-                            onCheckedChange = { viewModel.setNotificationCapture(it) }
+            SettingsSection(title = "Notification Triage") {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Construction,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Not enabled in this alpha",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
                         )
-                    }
-
-                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = "Screenshot Media Observer",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Detects action items when you take a screenshot",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = screenshotCapture,
-                            onCheckedChange = { viewModel.setScreenshotCapture(it) }
+                        Text(
+                            text = "This build does not read, hide, or change Android notifications or screenshots.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -250,13 +200,13 @@ fun SettingsScreen(
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "100% On-Device Privacy Guarantee",
+                            text = "Local inference, explicit downloads",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "Thwiply performs all inference locally using on-device silicon. Zero tokens, notifications, or screenshots are ever transmitted to any cloud servers.",
+                            text = "Prompts entered in the Lab are processed on this device. Internet access is used to download the verified model; this alpha does not capture notifications or screenshots.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -273,7 +223,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Version", style = MaterialTheme.typography.bodyMedium)
-                        Text("1.0.0 (Beta)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("1.0.0 (Alpha)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Row(
                         modifier = Modifier

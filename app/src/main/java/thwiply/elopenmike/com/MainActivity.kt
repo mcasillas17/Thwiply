@@ -53,11 +53,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("main") {
-                            MainAppScreen(
-                                onNavigateToOnboarding = {
-                                    navController.navigate("onboarding")
-                                }
-                            )
+                            MainAppScreen()
                         }
                     }
                 }

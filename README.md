@@ -1,32 +1,30 @@
 # Thwiply 🕸️
 
-**Thwiply** is an Android application that "thwips" useful items out of the noise. It quietly catches notifications and screenshots, uses an on-device LLM to extract actionable intent, and surfaces it as a smart task list.
+**Thwiply** is an early Android alpha exploring private, on-device notification intelligence. The current build provides a local LLM Lab and a prototype task interface; it does not yet read or modify Android notifications or screenshots.
 
 ## 🛡️ Core Principle: Privacy First
-**Everything runs locally.** No backend, no cloud inference, no account, and no telemetry. After a one-time model download, the app never phones home. Your notifications and screenshots stay on your silicon.
+LLM inference runs on the Android device. Internet access is used to download a pinned model from Hugging Face, and the downloaded file is verified before activation. The alpha has no account, backend, analytics, notification listener, or screenshot observer.
 
 ## ✨ Features
-- **Passive Capture (v2):** Observes notifications and screenshots in the background.
-- **On-Device LLM:** Uses **Gemma 3 1B** via LiteRT-LM (Google AI Edge) to decide what's actionable.
-- **Smart Task List:** A simple, high-signal surface for extracted tasks.
-- **Automatic Cleanup:** Optionally deletes processed screenshots to save space.
+- **Verified Model Installation:** Resumable download, exact-size validation, SHA-256 verification, and atomic activation.
+- **On-Device LLM Lab:** Runs Qwen 2.5 1.5B through LiteRT-LM for local prompt experiments.
+- **Prototype Task Interface:** Demonstrates the intended high-signal experience using sample data.
 
 ## 🛠️ Tech Stack
 - **Language:** Kotlin (Modern Idiomatic)
 - **UI:** Jetpack Compose with Material 3
 - **LLM Runtime:** [LiteRT-LM](https://ai.google.dev/edge/litert) (formerly MediaPipe LLM Inference)
-- **Model:** Qwen 2.5 1.5B Instruct (Default, ungated) / Gemma 3 1B IT (Quantized int4)
+- **Model:** Qwen 2.5 1.5B Instruct (pinned LiteRT-LM build)
 - **DI:** Hilt
 - **Async:** Coroutines + Flow
-- **Persistence:** Room (v2)
-- **Networking:** OkHttp (for resumable model download)
+- **Networking:** OkHttp
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Android device or emulator with **Min SDK 31 (Android 12)**.
-- Pixel 6 or newer (or equivalent) is recommended for smooth LLM inference.
-- *(Optional)* **Hugging Face Token:** Only needed if you choose the license-gated **Gemma 3** model instead of the default ungated **Qwen 2.5** model.
+- About 1.6 GB of free storage for the current pinned model, plus installation headroom.
+- Pixel 6 or newer (or equivalent) is recommended for local inference experiments.
 
 ### Installation
 1. Clone the repository:
@@ -36,30 +34,25 @@
 2. Open the project in **Android Studio (Ladybug or newer)**.
 3. Build and run the app.
 
-### First Launch (The Onboarding)
-On the first launch, Thwiply will guide you through a one-time download of the AI model. 
-- Default preset is **Qwen 2.5 1.5B** (100% ungated, 1-click download, no accounts/tokens needed).
-- Or switch to **Gemma 3 1B** or enter a custom model URL.
-- Once the download completes and integrity is verified, you can access the **LLM Debug Inference** screen to test the model.
+### First Launch
+On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted downloads can resume, and the app checks the exact size and SHA-256 digest before activating the model. Once complete, use the **Lab** tab to test local inference.
 
 ## 🗺️ Roadmap
 
-### v1: Scaffolding (Current)
+### Secure alpha (Current)
 - [x] Project architecture (Hilt, Compose, Navigation)
-- [x] Model management and resumable download
+- [x] Verified, resumable model installation
 - [x] LiteRT-LM integration and streaming inference
-- [x] Debug inference UI
+- [x] Local inference Lab
+- [x] Truthful feature and privacy status
 
-### v2: Capture & Process (Coming Soon)
+### Notification triage MVP (Planned)
 - [ ] Notification Listener Service
-- [ ] Screenshot media observation
-- [ ] OCR pre-filtering
-- [ ] Task extraction logic
-- [ ] Room database for persistence
-- [ ] "Today" screen UI
-
-## 📄 License
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
+- [ ] Per-app consent and allowlist
+- [ ] Durable encrypted local persistence
+- [ ] Strict structured triage decisions
+- [ ] Explanation and one-tap correction loop
+- [ ] Real Today / Needs Review surfaces
 
 ---
 *The name Thwiply is inspired by the sound of Spider-Man's web-shooters — catching the important things before they fall through the cracks.*

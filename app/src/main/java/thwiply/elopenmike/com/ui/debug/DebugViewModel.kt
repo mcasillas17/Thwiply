@@ -27,6 +27,12 @@ class DebugViewModel @Inject constructor(
         viewModelScope.launch {
             if (modelManager.isModelAvailable()) {
                 engineManager.initialize(modelManager.modelFile)
+                    .exceptionOrNull()
+                    ?.let { error ->
+                        _output.value = "Unable to initialize local AI: ${error.message}"
+                    }
+            } else {
+                _output.value = "No verified model is installed."
             }
             _isInitializing.value = false
         }
@@ -45,8 +51,4 @@ class DebugViewModel @Inject constructor(
         }
     }
     
-    override fun onCleared() {
-        super.onCleared()
-        engineManager.close()
-    }
 }

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Enable Dependabot alerts and security-update pull requests for every detected ecosystem, and add Gradle dependency submission because GitHub currently reports zero dependency-graph manifests.
+**Goal:** Enable Dependabot alerts and security-update pull requests for every detected ecosystem, and add Gradle dependency submission because GitHub reports no Gradle manifest or submitted Gradle snapshot.
 
 **Architecture:** Repository settings enable alerts and automated security fixes. A security-only `dependabot.yml` covers Gradle and GitHub Actions, while a dedicated default-branch workflow resolves and submits Gradle's complete dependency graph with immutable action pins and least-privilege permissions.
 
@@ -339,7 +339,7 @@ Create a pull request titled `Enable Dependabot security updates` with this body
 ## Summary
 
 - configure Dependabot security updates for Gradle and GitHub Actions
-- add Gradle dependency submission because the dependency graph has no manifests
+- add Gradle dependency submission because the complete Gradle graph is not visible
 - keep routine version-update pull requests disabled
 
 ## Validation
@@ -410,7 +410,7 @@ query {
 }'
 ```
 
-Expected before merge: the graph may still report `totalCount: 0` because the new workflow cannot run from the default branch until this unmerged pull request lands. Report that state explicitly rather than claiming the submitted graph is already visible.
+Expected before merge: the graph may still omit any Gradle manifest or submitted Gradle snapshot because the new workflow cannot run from the default branch until this unmerged pull request lands. Report that state explicitly as the complete Gradle graph not yet being visible rather than claiming the submitted graph is already visible.
 
 - [ ] **Step 3: Confirm the pull request was not merged**
 

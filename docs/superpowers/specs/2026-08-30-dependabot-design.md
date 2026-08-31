@@ -2,7 +2,7 @@
 
 ## Goal
 
-Enable Dependabot alerts and security-update pull requests for Thwiply, configure every detected package ecosystem, and submit the resolved Gradle dependency graph because GitHub currently exposes no dependency-graph manifests.
+Enable Dependabot alerts and security-update pull requests for Thwiply, configure every detected package ecosystem, and submit the resolved Gradle dependency graph because GitHub currently exposes no Gradle manifest or submitted Gradle snapshot.
 
 ## Detected dependency surfaces
 

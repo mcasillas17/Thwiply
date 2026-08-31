@@ -379,14 +379,14 @@ Run:
 gh api --method GET --paginate --slurp \
   repos/mcasillas17/Thwiply/dependabot/alerts \
   -f state=open \
-  -f per_page=100 \
-  --jq '
-    [.[][]] |
-    reduce .[] as $alert (
-      {critical: 0, high: 0, moderate: 0, low: 0};
-      .[$alert.security_advisory.severity] += 1
-    )
-  '
+  -f per_page=100 |
+jq '
+  [.[][]] |
+  reduce .[] as $alert (
+    {critical: 0, high: 0, moderate: 0, low: 0};
+    .[$alert.security_advisory.severity] += 1
+  )
+'
 ```
 
 Expected: a JSON object containing numeric `critical`, `high`, `moderate`, and `low` counts. An all-zero result is valid.

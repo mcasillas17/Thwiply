@@ -41,13 +41,15 @@ Each constraint will require version 1.80.2 and state the security rationale. No
 
 ## Test Strategy
 
-Add a root Gradle verification task that inspects the resolved buildscript classpath and fails unless all three expected modules are present at exactly 1.80.2. Test-first evidence must show:
+Add a typed root Gradle verification task that fails unless all three expected modules are present at exactly 1.80.2. A lazy provider maps the resolved buildscript classpath into a `MapProperty`; the task action reads only serializable `Property`, `SetProperty`, and `MapProperty` inputs so unrelated tasks do not realize verification data and configuration cache entries can be reused. Test-first evidence must show:
 
 1. Before remediation, the assertion fails and reports the vulnerable 1.79 resolution.
 2. After remediation, the assertion passes for all three modules.
 3. `buildEnvironment` reports each module resolving to 1.80.2.
 4. `:app:debugRuntimeClasspath` remains free of Bouncy Castle.
-5. The existing test, lint, and debug assembly suite succeeds.
+5. The verification task stores and then reuses the Gradle configuration cache.
+6. An unrelated offline `help` invocation remains configuration-cache compatible without running the verification task.
+7. The existing test, lint, and debug assembly suite succeeds.
 
 The verification task is deterministic and guards against a future plugin update reintroducing a vulnerable version.
 

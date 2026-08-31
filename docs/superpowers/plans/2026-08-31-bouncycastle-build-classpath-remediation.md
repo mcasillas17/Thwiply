@@ -4,7 +4,7 @@
 
 **Goal:** Resolve the Android build-tool classpath's vulnerable Bouncy Castle 1.79 modules to the minimum patched version, 1.80.2, without adding Bouncy Castle to the app runtime.
 
-**Architecture:** The root build declares a narrow security policy for the plugin classpath and a verification task that resolves that same classpath. Strict constraints are attempted first; they are retained only when the resolved dependency graph proves they affect the plugins DSL classpath.
+**Architecture:** The root build declares a narrow security policy for the plugin classpath and a verification task whose lazy provider maps that same classpath into typed inputs only when needed. The task action consumes only serializable declared inputs, preserving configuration-cache compatibility. Strict constraints are attempted first; they are retained only when the resolved dependency graph proves they affect the plugins DSL classpath.
 
 **Tech Stack:** Gradle 9.4.1 Kotlin DSL, Android Gradle Plugin 9.2.1, Java 21
 
@@ -24,38 +24,59 @@
 
 - [ ] **Step 1: Define the expected modules and verification task without changing resolution**
 
-Add this below the existing `plugins` block:
+Add these imports and the typed task class before the existing `plugins` block, then register it below that block:
 
 ```kotlin
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.MapProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+
+abstract class VerifyBouncyCastleBuildscriptTask : DefaultTask() {
+    @get:Input
+    abstract val expectedVersion: Property<String>
+
+    @get:Input
+    abstract val guardedModules: SetProperty<String>
+
+    @get:Input
+    abstract val resolvedVersions: MapProperty<String, String>
+
+    @TaskAction
+    fun verify() {
+        val resolution = guardedModules.get().associateWith {
+            resolvedVersions.get()[it] ?: "<missing>"
+        }
+        val unexpectedVersions = resolution.filterValues { it != expectedVersion.get() }
+
+        check(unexpectedVersions.isEmpty()) {
+            "Expected Bouncy Castle build-tool modules at ${expectedVersion.get()}, " +
+                "but resolved $unexpectedVersions"
+        }
+    }
+}
+
 val patchedBouncyCastleVersion = "1.80.2"
 val guardedBouncyCastleModules = setOf(
     "bcprov-jdk18on",
     "bcpkix-jdk18on",
     "bcutil-jdk18on",
 )
-val buildscriptClasspath = buildscript.configurations.named("classpath")
+val resolvedBouncyCastleVersions = buildscript.configurations.named("classpath").map { configuration ->
+    configuration.incoming.resolutionResult.allComponents
+        .mapNotNull { it.moduleVersion }
+        .filter { it.group == "org.bouncycastle" }
+        .associate { it.name to it.version }
+}
 
-tasks.register("verifyBuildscriptBouncyCastle") {
+tasks.register<VerifyBouncyCastleBuildscriptTask>("verifyBuildscriptBouncyCastle") {
     group = "verification"
     description = "Verifies that build-tool Bouncy Castle modules use the patched version."
-
-    doLast {
-        val resolvedVersions = buildscriptClasspath.get()
-            .incoming
-            .resolutionResult
-            .allComponents
-            .mapNotNull { it.moduleVersion }
-            .filter { it.group == "org.bouncycastle" && it.name in guardedBouncyCastleModules }
-            .associate { it.name to it.version }
-
-        val unexpectedVersions = guardedBouncyCastleModules.associateWith(resolvedVersions::get)
-            .filterValues { it != patchedBouncyCastleVersion }
-
-        check(unexpectedVersions.isEmpty()) {
-            "Expected Bouncy Castle build-tool modules at $patchedBouncyCastleVersion, " +
-                "but resolved $unexpectedVersions"
-        }
-    }
+    expectedVersion.set(patchedBouncyCastleVersion)
+    guardedModules.set(guardedBouncyCastleModules)
+    resolvedVersions.set(resolvedBouncyCastleVersions)
 }
 ```
 
@@ -151,7 +172,31 @@ ANDROID_HOME="$HOME/Library/Android/sdk" \
 
 Expected: every occurrence of `bcprov-jdk18on`, `bcpkix-jdk18on`, and `bcutil-jdk18on` resolves to `1.80.2`; no occurrence resolves to `1.79`.
 
-- [ ] **Step 5: Commit the implementation**
+- [ ] **Step 5: Prove configuration-cache storage and reuse**
+
+Run twice:
+
+```bash
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+./gradlew verifyBuildscriptBouncyCastle --configuration-cache --no-daemon
+```
+
+Expected: the first run reports `Configuration cache entry stored.` and the second reports `Configuration cache entry reused.`
+
+- [ ] **Step 6: Verify an unrelated task does not run verification**
+
+Run:
+
+```bash
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+ANDROID_HOME="$HOME/Library/Android/sdk" \
+./gradlew help --offline --configuration-cache --no-daemon
+```
+
+Expected: `BUILD SUCCESSFUL`, a stored or reused configuration cache entry, and no `verifyBuildscriptBouncyCastle` task execution.
+
+- [ ] **Step 7: Commit the implementation**
 
 ```bash
 git add build.gradle.kts

@@ -1,3 +1,10 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.MapProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.SetProperty
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
+
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 buildscript {
     dependencies {
@@ -18,6 +25,30 @@ buildscript {
     }
 }
 
+abstract class VerifyBouncyCastleBuildscriptTask : DefaultTask() {
+    @get:Input
+    abstract val expectedVersion: Property<String>
+
+    @get:Input
+    abstract val guardedModules: SetProperty<String>
+
+    @get:Input
+    abstract val resolvedVersions: MapProperty<String, String>
+
+    @TaskAction
+    fun verify() {
+        val resolution = guardedModules.get().associateWith {
+            resolvedVersions.get()[it] ?: "<missing>"
+        }
+        val unexpectedVersions = resolution.filterValues { it != expectedVersion.get() }
+
+        check(unexpectedVersions.isEmpty()) {
+            "Expected Bouncy Castle build-tool modules at ${expectedVersion.get()}, " +
+                "but resolved $unexpectedVersions"
+        }
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.android) apply false
@@ -32,27 +63,17 @@ val guardedBouncyCastleModules = setOf(
     "bcpkix-jdk18on",
     "bcutil-jdk18on",
 )
-val buildscriptClasspath = buildscript.configurations.named("classpath")
+val resolvedBouncyCastleVersions = buildscript.configurations.named("classpath").map { configuration ->
+    configuration.incoming.resolutionResult.allComponents
+        .mapNotNull { it.moduleVersion }
+        .filter { it.group == "org.bouncycastle" }
+        .associate { it.name to it.version }
+}
 
-tasks.register("verifyBuildscriptBouncyCastle") {
+tasks.register<VerifyBouncyCastleBuildscriptTask>("verifyBuildscriptBouncyCastle") {
     group = "verification"
     description = "Verifies that build-tool Bouncy Castle modules use the patched version."
-
-    doLast {
-        val resolvedVersions = buildscriptClasspath.get()
-            .incoming
-            .resolutionResult
-            .allComponents
-            .mapNotNull { it.moduleVersion }
-            .filter { it.group == "org.bouncycastle" && it.name in guardedBouncyCastleModules }
-            .associate { it.name to it.version }
-
-        val unexpectedVersions = guardedBouncyCastleModules.associateWith(resolvedVersions::get)
-            .filterValues { it != patchedBouncyCastleVersion }
-
-        check(unexpectedVersions.isEmpty()) {
-            "Expected Bouncy Castle build-tool modules at $patchedBouncyCastleVersion, " +
-                "but resolved $unexpectedVersions"
-        }
-    }
+    expectedVersion.set(patchedBouncyCastleVersion)
+    guardedModules.set(guardedBouncyCastleModules)
+    resolvedVersions.set(resolvedBouncyCastleVersions)
 }

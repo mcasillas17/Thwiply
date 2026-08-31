@@ -39,6 +39,8 @@ On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted d
 
 ## 🗺️ Roadmap
 
+The dependency-ordered product roadmap, launch gates, privacy requirements, and non-goals live in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ### Secure alpha (Current)
 - [x] Project architecture (Hilt, Compose, Navigation)
 - [x] Verified, resumable model installation

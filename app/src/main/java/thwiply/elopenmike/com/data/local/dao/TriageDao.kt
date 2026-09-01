@@ -5,7 +5,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 import thwiply.elopenmike.com.data.local.entity.TriageDecisionEntity
 import thwiply.elopenmike.com.data.local.entity.TriageItemEntity
@@ -36,8 +35,23 @@ interface TriageDao {
     @Query("SELECT * FROM triage_items WHERE id = :triageItemId")
     suspend fun findTriageRecord(triageItemId: String): TriageItemWithDecision?
 
-    @Update
-    suspend fun updateTriageItem(item: TriageItemEntity): Int
+    @Query(
+        """
+        UPDATE triage_items
+        SET display_title = :displayTitle,
+            display_summary = :displaySummary,
+            is_high_priority = :isHighPriority,
+            due_at_epoch_millis = :dueAtEpochMillis
+        WHERE id = :triageItemId
+        """,
+    )
+    suspend fun updateTriageItemDetails(
+        triageItemId: String,
+        displayTitle: String,
+        displaySummary: String?,
+        isHighPriority: Boolean,
+        dueAtEpochMillis: Long?,
+    ): Int
 
     @Query(
         """

@@ -248,7 +248,13 @@ class RoomRepositoriesTest {
 
         override suspend fun findTriageRecord(triageItemId: String): TriageItemWithDecision? = null
 
-        override suspend fun updateTriageItem(item: TriageItemEntity): Int = updateCount
+        override suspend fun updateTriageItemDetails(
+            triageItemId: String,
+            displayTitle: String,
+            displaySummary: String?,
+            isHighPriority: Boolean,
+            dueAtEpochMillis: Long?,
+        ): Int = updateCount
 
         override suspend fun toggleTriageItemCompletion(
             triageItemId: String,

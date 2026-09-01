@@ -30,7 +30,13 @@ class RoomTriageRepository @Inject constructor(
     override suspend fun updateTriageItem(item: TriageItem): RepositoryResult<Unit> {
         var updatedRows = 0
         val result = executeStorageOperation(StorageOperation.UPDATE_TRIAGE) {
-            updatedRows = triageDao.updateTriageItem(item.toEntity())
+            updatedRows = triageDao.updateTriageItemDetails(
+                triageItemId = item.id,
+                displayTitle = item.displayTitle,
+                displaySummary = item.displaySummary,
+                isHighPriority = item.isHighPriority,
+                dueAtEpochMillis = item.dueAtEpochMillis,
+            )
         }
         return if (result is RepositoryResult.Success && updatedRows == 0) {
             missingRecord(StorageOperation.UPDATE_TRIAGE)

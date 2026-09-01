@@ -21,6 +21,10 @@ import thwiply.elopenmike.com.data.local.entity.TriageDecisionEntity
 import thwiply.elopenmike.com.data.local.entity.TriageItemEntity
 import thwiply.elopenmike.com.data.local.entity.UserCorrectionEntity
 import thwiply.elopenmike.com.data.local.entity.UserRuleEntity
+import thwiply.elopenmike.com.data.repository.RoomTriageRepository
+import thwiply.elopenmike.com.domain.triage.RepositoryResult
+import thwiply.elopenmike.com.domain.triage.SourceReference
+import thwiply.elopenmike.com.domain.triage.TriageItem
 
 @RunWith(AndroidJUnit4::class)
 class ThwiplyDatabaseTest {
@@ -73,8 +77,12 @@ class ThwiplyDatabaseTest {
 
         assertEquals(
             1,
-            database.triageDao().updateTriageItem(
-                originalItem.copy(displayTitle = "Buy oat milk"),
+            database.triageDao().updateTriageItemDetails(
+                triageItemId = originalItem.id,
+                displayTitle = "Buy oat milk",
+                displaySummary = originalItem.displaySummary,
+                isHighPriority = originalItem.isHighPriority,
+                dueAtEpochMillis = originalItem.dueAtEpochMillis,
             ),
         )
         reopenDatabase()
@@ -119,6 +127,48 @@ class ThwiplyDatabaseTest {
         assertEquals(listOf(1, 1), affectedRows)
         reopenDatabase()
         assertNull(database.triageDao().findTriageRecord(item.id)?.item?.completedAtEpochMillis)
+    }
+
+    @Test
+    fun updatingMutableFieldsCannotReclassifyNotificationProvenance() = runBlocking {
+        val original = notificationItem(
+            id = "immutable-provenance",
+            retentionExpiresAtEpochMillis = 500,
+        )
+        database.triageDao().insertTriageRecord(
+            original,
+            testDecision(id = "immutable-decision", triageItemId = original.id),
+        )
+        val repository = RoomTriageRepository(database.triageDao())
+
+        val result = repository.updateTriageItem(
+            TriageItem(
+                id = original.id,
+                displayTitle = "Updated title",
+                displaySummary = "Updated summary",
+                source = SourceReference.manual(),
+                isHighPriority = true,
+                createdAtEpochMillis = 1,
+                dueAtEpochMillis = 300,
+                completedAtEpochMillis = null,
+            ),
+        )
+
+        result as RepositoryResult.Success
+        reopenDatabase()
+        val updated = database.triageDao().findTriageRecord(original.id)?.item
+        assertEquals("Updated title", updated?.displayTitle)
+        assertEquals("Updated summary", updated?.displaySummary)
+        assertEquals(true, updated?.isHighPriority)
+        assertEquals(300L, updated?.dueAtEpochMillis)
+        assertEquals("NOTIFICATION", updated?.sourceKind)
+        assertEquals(original.sourcePackageName, updated?.sourcePackageName)
+        assertEquals(original.sourceStableKeyHash, updated?.sourceStableKeyHash)
+        assertEquals(original.createdAtEpochMillis, updated?.createdAtEpochMillis)
+        assertEquals(
+            original.retentionExpiresAtEpochMillis,
+            updated?.retentionExpiresAtEpochMillis,
+        )
     }
 
     @Test

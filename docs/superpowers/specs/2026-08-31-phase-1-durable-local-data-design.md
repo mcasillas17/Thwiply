@@ -44,7 +44,7 @@ The database starts at schema v2. A checked-in schema v1 contains all four Phase
 - `UserRuleRepository` creates, updates, observes, and deletes rules.
 - `NotificationDataLifecycleRepository` purges expired notification-derived items and deletes all notification-derived records plus all rules.
 
-Repository operations return a typed `RepositoryResult` so an empty query cannot be confused with a storage failure. Known SQLite failures retain their original cause in `RepositoryResult.Failure`; unexpected failures and cancellation are not swallowed. Updates and deletes that match no row return a typed not-found failure.
+Repository operations return a typed `RepositoryResult` so an empty query cannot be confused with a storage failure. Known SQLite failures retain their original cause in `RepositoryResult.Failure`; unexpected failures and cancellation are not swallowed. Item updates change only approved display/priority/due fields; source provenance, creation time, retention, and completion cannot be reclassified through that path. Updates and deletes that match no row return a typed not-found failure.
 
 The default notification retention period is 30 days. New notification-derived items receive an expiry when saved. Manual items have no retention expiry. Today invokes the explicit purge repository operation on every screen entry, so a retained ViewModel can retry a failure and cannot indefinitely display newly expired rows. Phase 2 can additionally call the same contract from ingestion or lifecycle scheduling.
 

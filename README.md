@@ -12,25 +12,22 @@
 
 ---
 
-**Thwiply** is an Android application that "thwips" useful items out of the noise. It catches notifications and screenshots, uses an on-device LLM to extract actionable intent, and surfaces it as a smart, distraction-free task feed.
+**Thwiply** is an early Android alpha exploring private, on-device notification intelligence. The current build provides an on-device local LLM Lab and a prototype task interface; it does not yet read or modify Android notifications or screenshots.
 
 ---
 
 ## 🛡️ Core Principle: Privacy First
-**Everything runs locally.** No backend, no cloud inference, no mandatory accounts, and zero telemetry. After a one-time on-device model download, the app operates completely offline. Your notifications and screenshots never leave your device's silicon.
+LLM inference runs strictly on the Android device. Internet access is used solely to download a pinned model from Hugging Face, and the downloaded file is verified with SHA-256 before activation. The alpha has no mandatory accounts, cloud backends, analytics, or background trackers.
 
 ---
 
 ## ✨ Features
 
-- **📱 Today Feed:** High-signal task surface with origin badges (WhatsApp, Slack, Gmail, Screenshots), priority flags, completion toggles, and expandable raw AI intent quotes.
-- **⚡ AI Playground:** Interactive sandbox for testing on-device prompt inference, structured JSON extraction schemas, and real-time generation metrics (tokens/sec, latency).
-- **⚙️ Settings & Theme Manager:** Full support for **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan), alongside model cache management and background capture toggles.
-- **🧠 Flexible On-Device Engine:**
-  - **Qwen 2.5 1.5B Instruct (Default):** 100% ungated direct download with zero accounts or tokens required (~900 MB).
-  - **Gemma 3 1B IT (Google AI Edge):** Ultra-compact quantized int4 model with integrated Hugging Face license helper (~550 MB).
-  - **Custom Model URL:** Power-user option for any compatible `.litertlm` model weights.
-- **🎨 Official Adaptive Branding:** Custom spider-web spinneret icon design with Android 13+ monochrome dynamic theming support.
+- **Verified Model Installation:** Resumable download, exact-size validation, SHA-256 digest verification, and atomic activation.
+- **On-Device LLM Lab / Playground:** Runs Qwen 2.5 1.5B through LiteRT-LM for local prompt experiments and structured JSON extraction testing with live performance metrics.
+- **Prototype Task Interface:** High-signal task surface with origin badges (WhatsApp, Slack, Gmail, Screenshots), priority flags, completion toggles, and expandable raw AI intent quotes.
+- **Settings & Theme Manager:** Full live support for **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan).
+- **Official Adaptive Branding:** Custom spider-web spinneret icon design with Android 13+ monochrome dynamic theming support.
 
 ---
 
@@ -39,9 +36,10 @@
 - **UI Framework:** Jetpack Compose with Material 3
 - **Package / Namespace:** `thwiply.elopenmike.com`
 - **LLM Runtime:** [LiteRT-LM](https://ai.google.dev/edge/litert) (Google AI Edge on-device acceleration)
+- **Model:** Qwen 2.5 1.5B Instruct (pinned LiteRT-LM build)
 - **Dependency Injection:** Hilt
 - **Async & Reactive Architecture:** Kotlin Coroutines + StateFlow
-- **Networking:** OkHttp (for resumable model downloads with byte progress streaming)
+- **Networking:** OkHttp (resumable downloads with byte progress streaming)
 
 ---
 
@@ -49,6 +47,7 @@
 
 ### Prerequisites
 - Android device or emulator with **Min SDK 31 (Android 12+)**.
+- About 1.6 GB of free storage for the pinned model, plus installation headroom.
 - Pixel 6 or newer (or equivalent ARM64 / x86_64 device) recommended for hardware-accelerated LLM execution.
 
 ### Installation
@@ -64,28 +63,30 @@
    ```
 
 ### First Launch
-On first launch, Thwiply provides a 1-click model setup:
-- Select **Qwen 2.5 1.5B** for immediate, token-free download.
-- Or choose **Gemma 3 1B** with direct links to accept Google terms and paste your Hugging Face read token.
-- Once downloaded and verified, the app automatically transitions to the **Today** task feed.
+On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted downloads can resume, and the app checks the exact size and SHA-256 digest before activating the model. Once complete, use the **Playground** tab to test local inference.
 
 ---
 
 ## 🗺️ Roadmap
 
-### v1: Scaffolding & Core Experience (Current)
-- [x] Modern Material 3 UI with Electric Sapphire / Porcelain themes & live `ThemeManager`
-- [x] Official adaptive vector branding & Android 13+ themed icon support
-- [x] Model management, SHA-256 verification, and resumable downloading
-- [x] LiteRT-LM integration with real-time streaming inference
-- [x] Full App Shell with Bottom Navigation (`Today`, `AI Playground`, `Settings`)
-- [x] Interactive task feed with origin badges and expandable AI inference quotes
+The dependency-ordered product roadmap, launch gates, privacy requirements, and non-goals live in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-### v2: Background Capture & Persistence (Coming Soon)
+### Secure Alpha (Current)
+- [x] Project architecture (Hilt, Compose, Navigation)
+- [x] Official adaptive vector branding & Android 13+ themed icon support
+- [x] Verified, resumable model installation with SHA-256 validation
+- [x] LiteRT-LM integration and streaming inference
+- [x] Local inference Playground with real-time metrics
+- [x] High-signal prototype task interface with Electric Sapphire / Porcelain themes
+- [x] Truthful feature and privacy status
+
+### Notification Triage MVP (Planned)
 - [ ] Notification Listener Service
-- [ ] Screenshot media observation
-- [ ] OCR pre-filtering
-- [ ] Room database persistence
+- [ ] Per-app consent and allowlist
+- [ ] Durable encrypted local persistence
+- [ ] Strict structured triage decisions
+- [ ] Explanation and one-tap correction loop
+- [ ] Real Today / Needs Review surfaces
 
 ---
 

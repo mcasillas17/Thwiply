@@ -32,14 +32,12 @@ enum class MainTab(
     val unselectedIcon: ImageVector
 ) {
     TODAY("Today", Icons.Filled.CheckCircle, Icons.Outlined.CheckCircle),
-    PLAYGROUND("Playground", Icons.Filled.Bolt, Icons.Outlined.Bolt),
+    LAB("Lab", Icons.Filled.Bolt, Icons.Outlined.Bolt),
     SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 @Composable
-fun MainAppScreen(
-    onNavigateToOnboarding: () -> Unit
-) {
+fun MainAppScreen() {
     var selectedTab by rememberSaveable { mutableStateOf(MainTab.TODAY) }
 
     Scaffold(
@@ -87,8 +85,8 @@ fun MainAppScreen(
         ) { tab ->
             when (tab) {
                 MainTab.TODAY -> TodayScreen()
-                MainTab.PLAYGROUND -> PlaygroundScreen()
-                MainTab.SETTINGS -> SettingsScreen(onNavigateToOnboarding = onNavigateToOnboarding)
+                MainTab.LAB -> PlaygroundScreen()
+                MainTab.SETTINGS -> SettingsScreen()
             }
         }
     }

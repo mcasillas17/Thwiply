@@ -46,13 +46,13 @@ The database starts at schema v2. A checked-in schema v1 contains all four Phase
 
 Repository operations return a typed `RepositoryResult` so an empty query cannot be confused with a storage failure. Known SQLite failures retain their original cause in `RepositoryResult.Failure`; unexpected failures and cancellation are not swallowed. Updates and deletes that match no row return a typed not-found failure.
 
-The default notification retention period is 30 days. New notification-derived items receive an expiry when saved. Manual items have no retention expiry. Today invokes the explicit purge repository operation when its durable state opens; Phase 2 can additionally call the same contract from ingestion or lifecycle scheduling.
+The default notification retention period is 30 days. New notification-derived items receive an expiry when saved. Manual items have no retention expiry. Today invokes the explicit purge repository operation on every screen entry, so a retained ViewModel can retry a failure and cannot indefinitely display newly expired rows. Phase 2 can additionally call the same contract from ingestion or lifecycle scheduling.
 
 Delete-all intentionally preserves manual items while deleting every notification-sourced item, its cascaded decision/corrections, and every user rule. A manual correction that referenced a deleted rule survives with its optional rule reference cleared. Settings exposes this transaction behind a confirmation and reports exact deletion counts or a visible storage error.
 
 ## Today state and user-visible behavior
 
-`TodayViewModel` observes `TriageRepository` and exposes a sealed `TodayUiState`: `Loading`, `Empty`, `Content`, or `StorageError`. The screen shows a real first-run empty state rather than sample tasks. Manual quick-add creates a durable manual `TriageItem` and manual `NOW` decision. Complete/uncomplete and delete call the repository; storage failures remain visible and retryable rather than being represented as an empty list.
+`TodayViewModel` observes `TriageRepository` and exposes a sealed `TodayUiState`: `Loading`, `Empty`, `Content`, or `StorageError`. The screen shows a real first-run empty state rather than sample tasks. Manual quick-add validates the domain's title and summary bounds with visible field errors, then creates a durable manual `TriageItem` and manual `NOW` decision. It does not preserve the prototype's arbitrary source override or invent a hidden due time. Complete/uncomplete is an atomic database toggle, delete calls the repository, and storage failures remain visible and retryable rather than being represented as an empty list.
 
 The UI keeps a presentation-only `TaskItem` mapped from domain records. It no longer contains or expands a raw AI/notification snippet. Filters remain presentation concerns and are reduced to states the Phase 1 data model can truthfully represent.
 

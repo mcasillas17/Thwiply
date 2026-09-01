@@ -42,13 +42,18 @@ interface TriageDao {
     @Query(
         """
         UPDATE triage_items
-        SET completed_at_epoch_millis = :completedAtEpochMillis
+        SET completed_at_epoch_millis =
+            CASE
+                WHEN completed_at_epoch_millis IS NULL
+                THEN MAX(:completedAtEpochMillis, created_at_epoch_millis)
+                ELSE NULL
+            END
         WHERE id = :triageItemId
         """,
     )
-    suspend fun setCompletedAt(
+    suspend fun toggleTriageItemCompletion(
         triageItemId: String,
-        completedAtEpochMillis: Long?,
+        completedAtEpochMillis: Long,
     ): Int
 
     @Query("DELETE FROM triage_items WHERE id = :triageItemId")

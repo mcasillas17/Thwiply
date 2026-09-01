@@ -9,9 +9,9 @@ interface TriageRepository {
 
     suspend fun updateTriageItem(item: TriageItem): RepositoryResult<Unit>
 
-    suspend fun setTriageItemCompleted(
+    suspend fun toggleTriageItemCompletion(
         triageItemId: String,
-        completedAtEpochMillis: Long?,
+        completedAtEpochMillis: Long,
     ): RepositoryResult<Unit>
 
     suspend fun deleteTriageItem(triageItemId: String): RepositoryResult<Unit>

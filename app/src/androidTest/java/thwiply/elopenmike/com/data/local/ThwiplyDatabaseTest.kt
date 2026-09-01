@@ -5,6 +5,9 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -82,7 +85,7 @@ class ThwiplyDatabaseTest {
 
         assertEquals(
             1,
-            database.triageDao().setCompletedAt(
+            database.triageDao().toggleTriageItemCompletion(
                 triageItemId = originalItem.id,
                 completedAtEpochMillis = 200,
             ),
@@ -96,6 +99,26 @@ class ThwiplyDatabaseTest {
         assertEquals(1, database.triageDao().deleteTriageItem(originalItem.id))
         reopenDatabase()
         assertNull(database.triageDao().findTriageRecord(originalItem.id))
+    }
+
+    @Test
+    fun rapidCompletionTogglesCancelEachOtherAtomically() = runBlocking {
+        val item = manualItem(id = "toggle-item")
+        database.triageDao().insertTriageRecord(
+            item,
+            testDecision(id = "toggle-decision", triageItemId = item.id),
+        )
+
+        val affectedRows = coroutineScope {
+            listOf(
+                async { database.triageDao().toggleTriageItemCompletion(item.id, 200) },
+                async { database.triageDao().toggleTriageItemCompletion(item.id, 201) },
+            ).awaitAll()
+        }
+
+        assertEquals(listOf(1, 1), affectedRows)
+        reopenDatabase()
+        assertNull(database.triageDao().findTriageRecord(item.id)?.item?.completedAtEpochMillis)
     }
 
     @Test

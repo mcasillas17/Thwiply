@@ -75,6 +75,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import thwiply.elopenmike.com.domain.triage.SourceKind
+import thwiply.elopenmike.com.domain.triage.TriageItem
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,8 +86,13 @@ fun TodayScreen(
     val uiState by viewModel.uiState.collectAsState()
     val selectedFilter by viewModel.selectedFilter.collectAsState()
     val operationFailure by viewModel.operationFailure.collectAsState()
+    val taskInputFailure by viewModel.taskInputFailure.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showAddDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel) {
+        viewModel.onTodayEntered()
+    }
 
     val tasks = (uiState as? TodayUiState.Content)?.tasks.orEmpty()
     val filteredTasks = remember(tasks, selectedFilter) {
@@ -105,6 +111,21 @@ fun TodayScreen(
             snackbarHostState.showSnackbar("Thwiply couldn't save that change.")
             viewModel.dismissOperationFailure()
         }
+    }
+
+    LaunchedEffect(taskInputFailure) {
+        val failure = taskInputFailure ?: return@LaunchedEffect
+        val message = when (failure) {
+            TaskInputFailure.BLANK_TITLE -> "Enter a task description."
+            TaskInputFailure.TITLE_TOO_LONG -> {
+                "Task descriptions can use up to ${TriageItem.MAX_DISPLAY_TITLE_LENGTH} characters."
+            }
+            TaskInputFailure.SUMMARY_TOO_LONG -> {
+                "Task notes can use up to ${TriageItem.MAX_DISPLAY_SUMMARY_LENGTH} characters."
+            }
+        }
+        snackbarHostState.showSnackbar(message)
+        viewModel.dismissTaskInputFailure()
     }
 
     Scaffold(
@@ -528,6 +549,8 @@ private fun QuickAddDialog(
     var title by remember { mutableStateOf("") }
     var subtitle by remember { mutableStateOf("") }
     var isHighPriority by remember { mutableStateOf(false) }
+    val titleTooLong = title.trim().length > TriageItem.MAX_DISPLAY_TITLE_LENGTH
+    val summaryTooLong = subtitle.trim().length > TriageItem.MAX_DISPLAY_SUMMARY_LENGTH
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Thwip New Task", fontWeight = FontWeight.Bold) },
@@ -540,12 +563,24 @@ private fun QuickAddDialog(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text("Task description") },
+                    isError = titleTooLong,
+                    supportingText = if (titleTooLong) {
+                        { Text("Use ${TriageItem.MAX_DISPLAY_TITLE_LENGTH} characters or fewer.") }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = subtitle,
                     onValueChange = { subtitle = it },
                     label = { Text("Notes (optional)") },
+                    isError = summaryTooLong,
+                    supportingText = if (summaryTooLong) {
+                        { Text("Use ${TriageItem.MAX_DISPLAY_SUMMARY_LENGTH} characters or fewer.") }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Row(
@@ -564,7 +599,7 @@ private fun QuickAddDialog(
         confirmButton = {
             Button(
                 onClick = { onAdd(title, subtitle, isHighPriority) },
-                enabled = title.isNotBlank(),
+                enabled = title.isNotBlank() && !titleTooLong && !summaryTooLong,
             ) {
                 Text("Add Task")
             }

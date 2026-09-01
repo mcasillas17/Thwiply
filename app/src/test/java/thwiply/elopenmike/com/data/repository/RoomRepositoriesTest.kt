@@ -58,6 +58,20 @@ class RoomRepositoriesTest {
     }
 
     @Test
+    fun `completion toggle rejects a negative timestamp before reaching Room`() {
+        val repository = RoomTriageRepository(FakeTriageDao())
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                repository.toggleTriageItemCompletion(
+                    triageItemId = "item-1",
+                    completedAtEpochMillis = -1,
+                )
+            }
+        }
+    }
+
+    @Test
     fun `sqlite write failure retains its cause`() = runBlocking {
         val sqliteFailure = SQLiteException("database unavailable")
         val repository = RoomTriageRepository(
@@ -236,9 +250,9 @@ class RoomRepositoriesTest {
 
         override suspend fun updateTriageItem(item: TriageItemEntity): Int = updateCount
 
-        override suspend fun setCompletedAt(
+        override suspend fun toggleTriageItemCompletion(
             triageItemId: String,
-            completedAtEpochMillis: Long?,
+            completedAtEpochMillis: Long,
         ): Int = updateCount
 
         override suspend fun deleteTriageItem(triageItemId: String): Int = updateCount

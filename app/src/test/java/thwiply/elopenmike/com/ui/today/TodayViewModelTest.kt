@@ -32,7 +32,7 @@ class TodayViewModelTest {
 
     @Test
     fun `initial state is loading before the repository flow is collected`() = runTest {
-        val viewModel = todayViewModel(FakeTriageRepository())
+        val viewModel = todayViewModel(FakeTriageRepository(), enterToday = false)
 
         assertEquals(TodayUiState.Loading, viewModel.uiState.value)
     }
@@ -93,6 +93,38 @@ class TodayViewModelTest {
     }
 
     @Test
+    fun `quick add rejects an overlong title without writing`() = runTest {
+        val repository = FakeTriageRepository()
+        val viewModel = todayViewModel(repository)
+
+        viewModel.addTask(
+            title = "x".repeat(TriageItem.MAX_DISPLAY_TITLE_LENGTH + 1),
+            subtitle = null,
+            isHighPriority = false,
+        )
+        advanceUntilIdle()
+
+        assertEquals(emptyList<TriageRecord>(), repository.createdRecords)
+        assertEquals(TaskInputFailure.TITLE_TOO_LONG, viewModel.taskInputFailure.value)
+    }
+
+    @Test
+    fun `quick add rejects an overlong summary without writing`() = runTest {
+        val repository = FakeTriageRepository()
+        val viewModel = todayViewModel(repository)
+
+        viewModel.addTask(
+            title = "Buy milk",
+            subtitle = "x".repeat(TriageItem.MAX_DISPLAY_SUMMARY_LENGTH + 1),
+            isHighPriority = false,
+        )
+        advanceUntilIdle()
+
+        assertEquals(emptyList<TriageRecord>(), repository.createdRecords)
+        assertEquals(TaskInputFailure.SUMMARY_TOO_LONG, viewModel.taskInputFailure.value)
+    }
+
+    @Test
     fun `complete and delete delegate to durable repository operations`() = runTest {
         val record = manualRecord()
         val repository = FakeTriageRepository(listOf(record))
@@ -129,7 +161,7 @@ class TodayViewModelTest {
     @Test
     fun `opening Today purges expired notification data`() = runTest {
         val lifecycleRepository = FakeLifecycleRepository()
-        TodayViewModel(FakeTriageRepository(), lifecycleRepository)
+        TodayViewModel(FakeTriageRepository(), lifecycleRepository).onTodayEntered()
 
         advanceUntilIdle()
 
@@ -148,16 +180,40 @@ class TodayViewModelTest {
             FakeTriageRepository(listOf(notificationRecord())),
             FakeLifecycleRepository(purgeResult = failure),
         )
+        viewModel.onTodayEntered()
 
         advanceUntilIdle()
 
         assertEquals(TodayUiState.StorageError, viewModel.uiState.value)
     }
 
-    private fun todayViewModel(repository: TriageRepository) = TodayViewModel(
-        repository,
-        FakeLifecycleRepository(),
-    )
+    @Test
+    fun `reentering Today reruns retention and recovers from an earlier failure`() = runTest {
+        val failure = RepositoryResult.Failure(
+            operation = StorageOperation.PURGE_EXPIRED_NOTIFICATION_DATA,
+            reason = StorageFailureReason.DATABASE,
+            cause = null,
+        )
+        val lifecycleRepository = FakeLifecycleRepository(purgeResult = failure)
+        val viewModel = TodayViewModel(FakeTriageRepository(), lifecycleRepository)
+        viewModel.onTodayEntered()
+        advanceUntilIdle()
+        assertEquals(TodayUiState.StorageError, viewModel.uiState.value)
+
+        lifecycleRepository.purgeResult = RepositoryResult.Success(0)
+        viewModel.onTodayEntered()
+        advanceUntilIdle()
+
+        assertEquals(TodayUiState.Empty, viewModel.uiState.value)
+        assertEquals(2, lifecycleRepository.purgeTimes.size)
+    }
+
+    private fun todayViewModel(
+        repository: TriageRepository,
+        enterToday: Boolean = true,
+    ) = TodayViewModel(repository, FakeLifecycleRepository()).also { viewModel ->
+        if (enterToday) viewModel.onTodayEntered()
+    }
 
     private fun manualRecord() = record(
         source = SourceReference.manual(),
@@ -232,9 +288,9 @@ class TodayViewModelTest {
         override suspend fun updateTriageItem(item: TriageItem): RepositoryResult<Unit> =
             RepositoryResult.Success(Unit)
 
-        override suspend fun setTriageItemCompleted(
+        override suspend fun toggleTriageItemCompletion(
             triageItemId: String,
-            completedAtEpochMillis: Long?,
+            completedAtEpochMillis: Long,
         ): RepositoryResult<Unit> {
             completionIds += triageItemId
             completionTimes += completedAtEpochMillis
@@ -250,7 +306,7 @@ class TodayViewModelTest {
     }
 
     private class FakeLifecycleRepository(
-        private val purgeResult: RepositoryResult<Int> = RepositoryResult.Success(0),
+        var purgeResult: RepositoryResult<Int> = RepositoryResult.Success(0),
     ) : NotificationDataLifecycleRepository {
         val purgeTimes = mutableListOf<Long>()
 

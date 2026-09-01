@@ -73,15 +73,15 @@ Delivered:
 - Compose-independent, validated contracts for triage items, decisions, sources, corrections, and rules;
 - four privacy-reviewed Room tables with foreign keys, indices, transactional writes, exported v1/v2 schemas, and an explicit 1→2 migration;
 - repository boundaries with `Flow` reads, typed not-found/database failures, and no broad exception translation;
-- repository-backed Today loading, empty, content, and storage-error states plus durable manual create, complete/uncomplete, and delete actions;
-- a 30-day expiry field only for notification-derived items, automatic expired-record purge when Today opens, and transactional delete-all for notification-derived records and all rules;
+- repository-backed Today loading, empty, content, and storage-error states plus validated durable manual create, atomic complete/uncomplete, and delete actions;
+- a 30-day expiry field only for notification-derived items, retryable expired-record purge on every Today entry, and transactional delete-all for notification-derived records and all rules;
 - a confirmed Settings delete-all control that preserves manual tasks and reports success or failure;
 - no notification listener, access request, allowlist, ingestion queue, or notification processing from Phase 2.
 
 Evidence:
 
-- `TriageModelsTest`, `RoomRepositoriesTest`, `TodayViewModelTest`, and `NotificationDataSettingsViewModelTest` cover contracts, mapping, failure semantics, repository-backed UI state, retention activation, and privacy erasure UX;
-- `ThwiplyDatabaseTest` covers on-disk create/update/complete/delete across reopen, transaction rollback, correction/rule persistence, cascade behavior, retention cutoffs, delete-all, and exact privacy-reviewed columns;
+- `TriageModelsTest`, `RoomRepositoriesTest`, `TodayViewModelTest`, and `NotificationDataSettingsViewModelTest` cover contracts, mapping, failure semantics, input bounds, repository-backed UI state, retryable retention activation, and privacy erasure UX;
+- `ThwiplyDatabaseTest` covers on-disk create/update/complete/delete across reopen, atomic rapid completion toggles, transaction rollback, correction/rule persistence, cascade behavior, retention cutoffs, delete-all, and exact privacy-reviewed columns;
 - `ThwiplyMigrationTest` seeds every v1 table and proves the v2 migration preserves supported values while backfilling notification retention only;
 - `BackupConfigurationTest` verifies `android:allowBackup="false"` plus explicit database exclusions in both cloud-backup and device-transfer rules.
 

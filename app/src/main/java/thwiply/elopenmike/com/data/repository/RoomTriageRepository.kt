@@ -39,16 +39,20 @@ class RoomTriageRepository @Inject constructor(
         }
     }
 
-    override suspend fun setTriageItemCompleted(
+    override suspend fun toggleTriageItemCompletion(
         triageItemId: String,
-        completedAtEpochMillis: Long?,
+        completedAtEpochMillis: Long,
     ): RepositoryResult<Unit> {
+        require(completedAtEpochMillis >= 0) { "completion timestamp must not be negative" }
         var updatedRows = 0
-        val result = executeStorageOperation(StorageOperation.SET_TRIAGE_COMPLETION) {
-            updatedRows = triageDao.setCompletedAt(triageItemId, completedAtEpochMillis)
+        val result = executeStorageOperation(StorageOperation.TOGGLE_TRIAGE_COMPLETION) {
+            updatedRows = triageDao.toggleTriageItemCompletion(
+                triageItemId,
+                completedAtEpochMillis,
+            )
         }
         return if (result is RepositoryResult.Success && updatedRows == 0) {
-            missingRecord(StorageOperation.SET_TRIAGE_COMPLETION)
+            missingRecord(StorageOperation.TOGGLE_TRIAGE_COMPLETION)
         } else {
             result
         }

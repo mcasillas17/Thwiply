@@ -383,13 +383,13 @@ gh api --method GET --paginate --slurp \
 jq '
   [.[][]] |
   reduce .[] as $alert (
-    {critical: 0, high: 0, moderate: 0, low: 0};
+    {critical: 0, high: 0, medium: 0, low: 0};
     .[$alert.security_advisory.severity] += 1
   )
 '
 ```
 
-Expected: a JSON object containing numeric `critical`, `high`, `moderate`, and `low` counts. An all-zero result is valid.
+Expected: a JSON object containing numeric `critical`, `high`, `medium`, and `low` counts. An all-zero result is valid.
 
 - [ ] **Step 2: Record dependency-graph visibility**
 

@@ -59,7 +59,7 @@ The `github-actions` Dependabot entry covers actions referenced by workflow file
 - GitHub API failures must stop the setup rather than being interpreted as success.
 - Dependency submission must fail visibly if Gradle resolution or API submission fails.
 - If GitHub has not processed a newly submitted snapshot immediately, report the workflow and graph state without claiming graph completeness.
-- Alert counts must be derived from open alerts returned by GitHub and grouped by GitHub's critical, high, moderate, and low severities.
+- Alert counts must be derived from open alerts returned by GitHub and grouped by GitHub's critical, high, medium, and low severities.
 
 ## Validation
 
@@ -68,5 +68,5 @@ The `github-actions` Dependabot entry covers actions referenced by workflow file
 - Confirm the repository reports Dependabot alerts and security updates as enabled.
 - Push the branch and open a pull request containing repository-file changes.
 - Run the dependency-submission workflow on the branch only if GitHub permits a safe manual run; otherwise rely on its default-branch trigger after merge and state that limitation.
-- Query open Dependabot alerts and report counts for critical, high, moderate, and low severities.
+- Query open Dependabot alerts and report counts for critical, high, medium, and low severities.
 - Verify the pull request remains open and unmerged.

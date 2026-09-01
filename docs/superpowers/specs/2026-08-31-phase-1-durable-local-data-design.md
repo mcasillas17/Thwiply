@@ -46,9 +46,9 @@ The database starts at schema v2. A checked-in schema v1 contains all four Phase
 
 Repository operations return a typed `RepositoryResult` so an empty query cannot be confused with a storage failure. Known SQLite failures retain their original cause in `RepositoryResult.Failure`; unexpected failures and cancellation are not swallowed. Updates and deletes that match no row return a typed not-found failure.
 
-The default notification retention period is 30 days. New notification-derived items receive an expiry when saved. Manual items have no retention expiry. Purging is an explicit repository operation in Phase 1; Phase 2 can call it from ingestion/startup scheduling without changing the storage contract.
+The default notification retention period is 30 days. New notification-derived items receive an expiry when saved. Manual items have no retention expiry. Today invokes the explicit purge repository operation when its durable state opens; Phase 2 can additionally call the same contract from ingestion or lifecycle scheduling.
 
-Delete-all intentionally preserves manual items while deleting every notification-sourced item, its cascaded decision/corrections, and every user rule. This matches the roadmap's user erasure boundary without turning “delete notification data” into an unrelated manual-task eraser.
+Delete-all intentionally preserves manual items while deleting every notification-sourced item, its cascaded decision/corrections, and every user rule. A manual correction that referenced a deleted rule survives with its optional rule reference cleared. Settings exposes this transaction behind a confirmation and reports exact deletion counts or a visible storage error.
 
 ## Today state and user-visible behavior
 
@@ -58,7 +58,7 @@ The UI keeps a presentation-only `TaskItem` mapped from domain records. It no lo
 
 ## Backup and transfer privacy
 
-The existing manifest-level `android:allowBackup="false"` remains unchanged. No backup or device-transfer include rule is added. Tests and final diff inspection verify that database work did not weaken this exclusion.
+The existing manifest-level `android:allowBackup="false"` remains unchanged. Because Android 12+ device manufacturers may ignore that flag for device-to-device migration, the manifest also references explicit rules that exclude the database domain from cloud backup and device transfer. `BackupConfigurationTest` locks down all three protections.
 
 ## Boundary and failure decisions
 
@@ -86,4 +86,3 @@ Every behavior follows red-green-refactor:
 1. A single all-purpose repository would reduce files but blur triage, feedback, and privacy-erasure authority. Separate boundaries make destructive operations explicit and independently testable.
 2. Persisting the current `TaskItem` directly would be smaller but couple durable schema to Compose copy and preserve the prototype's raw snippet field. A domain-to-presentation mapper prevents that privacy and architecture leak.
 3. Starting at schema v1 with no migration would reflect the fact that Room has not shipped yet, but it would not satisfy the roadmap's migration exit gate. Keeping a real v1 schema and shipping v2 exercises the migration path before user data depends on it.
-

@@ -1,7 +1,7 @@
 # Thwiply Product Roadmap
 
-**Status:** Secure alpha complete; durable local data foundation is next  
-**Last updated:** 2026-08-30
+**Status:** Durable local data foundation complete; consent and bounded ingestion are next
+**Last updated:** 2026-08-31
 
 ## Product direction
 
@@ -31,10 +31,11 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Secure model installation | Complete | PR [#7](https://github.com/mcasillas17/Thwiply/pull/7) |
 | Local LiteRT-LM Lab | Complete | Process-owned serialized engine and streaming UI |
 | Product copy and privacy status | Complete | Alpha UI no longer presents unfinished capture features as active |
-| Durable task and decision data | Not started | Today still uses sample in-memory tasks |
+| Durable task and decision data | Complete | Room v2, exported schemas, repository-backed Today state, and restart tests |
 | Notification ingestion | Not started | No `NotificationListenerService` is registered |
 | Structured triage pipeline | Not started | Lab output is not connected to persisted product state |
-| Explanations and corrections | Not started | No durable feedback or user-rule model |
+| Explanations, corrections, and rules | Foundation complete | Durable contracts, tables, DAOs, and repositories exist; correction UX remains Phase 4 |
+| Notification-data lifecycle | Foundation complete | 30-day expiry, automatic purge on Today entry, and confirmed delete-all in Settings |
 
 ## Dependency-ordered delivery plan
 
@@ -53,7 +54,7 @@ Delivered:
 
 ### Phase 1 — Durable local data foundation
 
-**Status:** Next
+**Status:** Complete
 
 **Outcome:** Product state survives process death and restarts without retaining unnecessary notification content.
 
@@ -67,6 +68,23 @@ Scope:
 6. Do not persist raw notification bodies by default.
 7. Add delete-all and retention behavior before ingestion exists.
 
+Delivered:
+
+- Compose-independent, validated contracts for triage items, decisions, sources, corrections, and rules;
+- four privacy-reviewed Room tables with foreign keys, indices, transactional writes, exported v1/v2 schemas, and an explicit 1→2 migration;
+- repository boundaries with `Flow` reads, typed not-found/database failures, and no broad exception translation;
+- repository-backed Today loading, empty, content, and storage-error states plus durable manual create, complete/uncomplete, and delete actions;
+- a 30-day expiry field only for notification-derived items, automatic expired-record purge when Today opens, and transactional delete-all for notification-derived records and all rules;
+- a confirmed Settings delete-all control that preserves manual tasks and reports success or failure;
+- no notification listener, access request, allowlist, ingestion queue, or notification processing from Phase 2.
+
+Evidence:
+
+- `TriageModelsTest`, `RoomRepositoriesTest`, `TodayViewModelTest`, and `NotificationDataSettingsViewModelTest` cover contracts, mapping, failure semantics, repository-backed UI state, retention activation, and privacy erasure UX;
+- `ThwiplyDatabaseTest` covers on-disk create/update/complete/delete across reopen, transaction rollback, correction/rule persistence, cascade behavior, retention cutoffs, delete-all, and exact privacy-reviewed columns;
+- `ThwiplyMigrationTest` seeds every v1 table and proves the v2 migration preserves supported values while backfilling notification retention only;
+- `BackupConfigurationTest` verifies `android:allowBackup="false"` plus explicit database exclusions in both cloud-backup and device-transfer rules.
+
 Exit gates:
 
 - create, update, complete, and delete operations survive app restart;
@@ -78,7 +96,7 @@ Exit gates:
 
 ### Phase 2 — Consent and bounded notification ingestion
 
-**Status:** Blocked by Phase 1
+**Status:** Next
 
 **Outcome:** Thwiply can observe notifications from explicitly approved apps without doing expensive work on Android callback threads.
 

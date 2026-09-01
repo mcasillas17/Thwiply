@@ -1,122 +1,155 @@
 package thwiply.elopenmike.com.ui.today
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import thwiply.elopenmike.com.domain.triage.DecisionOrigin
+import thwiply.elopenmike.com.domain.triage.NotificationDataLifecycleRepository
+import thwiply.elopenmike.com.domain.triage.RepositoryResult
+import thwiply.elopenmike.com.domain.triage.SourceReference
+import thwiply.elopenmike.com.domain.triage.StorageFailureReason
+import thwiply.elopenmike.com.domain.triage.StorageOperation
+import thwiply.elopenmike.com.domain.triage.TriageCategory
+import thwiply.elopenmike.com.domain.triage.TriageDecision
+import thwiply.elopenmike.com.domain.triage.TriageItem
+import thwiply.elopenmike.com.domain.triage.TriageRecord
+import thwiply.elopenmike.com.domain.triage.TriageRepository
 
 enum class TaskFilter(val label: String) {
     ALL("All"),
-    NOTIFICATIONS("🔔 Notifications"),
-    SCREENSHOTS("📸 Screenshots"),
-    HIGH_PRIORITY("⚡ High Priority"),
-    COMPLETED("✔️ Done")
+    NOTIFICATIONS("Notifications"),
+    HIGH_PRIORITY("High Priority"),
+    COMPLETED("Done"),
 }
 
 @HiltViewModel
-class TodayViewModel @Inject constructor() : ViewModel() {
-
-    private val _tasks = MutableStateFlow<List<TaskItem>>(
-        listOf(
-            TaskItem(
-                id = "1",
-                title = "Pick up lactose-free milk & sourdough",
-                subtitle = "From Trader Joe's before dinner",
-                source = TaskSource.WHATSAPP,
-                sourceSender = "Mom",
-                dueTime = "Today, 5:30 PM",
-                isCompleted = false,
-                isHighPriority = true,
-                aiSnippet = "\"Hey sweetie! Can you pick up lactose-free milk and some sourdough from TJ's before coming over?\""
-            ),
-            TaskItem(
-                id = "2",
-                title = "Review PR #42 & merge to staging",
-                subtitle = "LiteRT model inference engine optimizations",
-                source = TaskSource.SLACK,
-                sourceSender = "#mobile-eng",
-                dueTime = "Today, 4:00 PM",
-                isCompleted = false,
-                isHighPriority = true,
-                aiSnippet = "\"@channel reminder to review PR #42 before EOD standup so we can test the build!\""
-            ),
-            TaskItem(
-                id = "3",
-                title = "Check in for flight DL-1844",
-                subtitle = "Seat 12A • Gate B14",
-                source = TaskSource.GMAIL,
-                sourceSender = "Delta Air Lines",
-                dueTime = "Tomorrow, 8:00 AM",
-                isCompleted = false,
-                isHighPriority = false,
-                aiSnippet = "\"Your upcoming flight to SFO is ready for 24-hour check in. Confirmation: H9X2KL\""
-            ),
-            TaskItem(
-                id = "4",
-                title = "Book haircut appointment with Mateo",
-                subtitle = "Fade & trim",
-                source = TaskSource.SCREENSHOT,
-                sourceSender = "Instagram DM",
-                dueTime = "Friday, 2:00 PM",
-                isCompleted = false,
-                isHighPriority = false,
-                aiSnippet = "\"Mateo has open slots this Friday at 2pm if you want to book!\""
-            ),
-            TaskItem(
-                id = "5",
-                title = "Pay electric bill ($84.20)",
-                subtitle = "Auto-pay confirmation due",
-                source = TaskSource.MESSAGES,
-                sourceSender = "City Power",
-                dueTime = "Yesterday",
-                isCompleted = true,
-                isHighPriority = false,
-                aiSnippet = "\"Your monthly electricity statement is ready. Balance: $84.20 due Aug 24.\""
+class TodayViewModel @Inject constructor(
+    private val triageRepository: TriageRepository,
+    private val dataLifecycleRepository: NotificationDataLifecycleRepository,
+) : ViewModel() {
+    val uiState: StateFlow<TodayUiState> = flow {
+        when (
+            dataLifecycleRepository.purgeExpiredNotificationData(
+                nowEpochMillis = System.currentTimeMillis(),
             )
+        ) {
+            is RepositoryResult.Success -> emitAll(
+                triageRepository.observeTriageRecords().map { result ->
+                    when (result) {
+                        is RepositoryResult.Success -> {
+                            val tasks = result.value.map(TriageRecord::toTaskItem)
+                            if (tasks.isEmpty()) {
+                                TodayUiState.Empty
+                            } else {
+                                TodayUiState.Content(tasks)
+                            }
+                        }
+
+                        is RepositoryResult.Failure -> TodayUiState.StorageError
+                    }
+                },
+            )
+
+            is RepositoryResult.Failure -> emit(TodayUiState.StorageError)
+        }
+    }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = TodayUiState.Loading,
         )
-    )
-    val tasks: StateFlow<List<TaskItem>> = _tasks.asStateFlow()
 
     private val _selectedFilter = MutableStateFlow(TaskFilter.ALL)
     val selectedFilter: StateFlow<TaskFilter> = _selectedFilter.asStateFlow()
+
+    private val _operationFailure = MutableStateFlow<RepositoryResult.Failure?>(null)
+    val operationFailure: StateFlow<RepositoryResult.Failure?> = _operationFailure.asStateFlow()
 
     fun setFilter(filter: TaskFilter) {
         _selectedFilter.value = filter
     }
 
     fun toggleTask(id: String) {
-        _tasks.value = _tasks.value.map {
-            if (it.id == id) it.copy(isCompleted = !it.isCompleted) else it
+        val task = (uiState.value as? TodayUiState.Content)
+            ?.tasks
+            ?.firstOrNull { it.id == id }
+        if (task == null) {
+            _operationFailure.value = RepositoryResult.Failure(
+                operation = StorageOperation.SET_TRIAGE_COMPLETION,
+                reason = StorageFailureReason.NOT_FOUND,
+                cause = null,
+            )
+            return
+        }
+        val completedAtEpochMillis = if (task.isCompleted) {
+            null
+        } else {
+            maxOf(System.currentTimeMillis(), task.createdAtEpochMillis)
+        }
+        runRepositoryOperation {
+            triageRepository.setTriageItemCompleted(id, completedAtEpochMillis)
         }
     }
 
     fun deleteTask(id: String) {
-        _tasks.value = _tasks.value.filterNot { it.id == id }
+        runRepositoryOperation { triageRepository.deleteTriageItem(id) }
     }
 
     fun addTask(
         title: String,
         subtitle: String?,
-        source: TaskSource,
-        sender: String,
-        dueTime: String?,
         isHighPriority: Boolean,
-        snippet: String?
     ) {
-        val newTask = TaskItem(
-            id = UUID.randomUUID().toString(),
-            title = title.trim(),
-            subtitle = subtitle?.trim()?.ifBlank { null },
-            source = source,
-            sourceSender = sender.trim().ifBlank { "Manual" },
-            dueTime = dueTime?.trim()?.ifBlank { null },
-            isCompleted = false,
-            isHighPriority = isHighPriority,
-            aiSnippet = snippet?.trim()?.ifBlank { null }
+        val normalizedTitle = title.trim()
+        require(normalizedTitle.isNotBlank()) { "task title must not be blank" }
+        val now = System.currentTimeMillis()
+        val itemId = UUID.randomUUID().toString()
+        val record = TriageRecord(
+            item = TriageItem(
+                id = itemId,
+                displayTitle = normalizedTitle,
+                displaySummary = subtitle?.trim()?.ifBlank { null },
+                source = SourceReference.manual(),
+                isHighPriority = isHighPriority,
+                createdAtEpochMillis = now,
+                dueAtEpochMillis = null,
+                completedAtEpochMillis = null,
+            ),
+            decision = TriageDecision(
+                id = UUID.randomUUID().toString(),
+                triageItemId = itemId,
+                category = TriageCategory.NOW,
+                explanation = "Added manually",
+                origin = DecisionOrigin.MANUAL,
+                decidedAtEpochMillis = now,
+            ),
         )
-        _tasks.value = listOf(newTask) + _tasks.value
+        runRepositoryOperation { triageRepository.createTriageRecord(record) }
+    }
+
+    fun dismissOperationFailure() {
+        _operationFailure.value = null
+    }
+
+    private fun runRepositoryOperation(
+        operation: suspend () -> RepositoryResult<Unit>,
+    ) {
+        viewModelScope.launch {
+            when (val result = operation()) {
+                is RepositoryResult.Success -> Unit
+                is RepositoryResult.Failure -> _operationFailure.value = result
+            }
+        }
     }
 }

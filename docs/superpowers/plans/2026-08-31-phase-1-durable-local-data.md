@@ -14,7 +14,7 @@
 
 - Keep notification ingestion, permission, allowlist, model triage, and source-notification actions out of scope.
 - Persist no raw notification title, text, body, payload, extras, or prompt.
-- Preserve `android:allowBackup="false"`; add no backup or transfer include rule.
+- Preserve `android:allowBackup="false"`; add no backup or transfer include rule, and explicitly exclude the database domain from cloud backup and device transfer.
 - Use tests first for each behavior and watch the focused test fail for the intended reason.
 - Translate only known SQLite failures; do not catch cancellation or unknown failures.
 - Keep manual items when deleting notification-derived data; delete all notification-derived children and all user rules.
@@ -55,11 +55,11 @@
 - Consumes: Task 1 domain values.
 - Produces: v1 tables `triage_items`, `triage_decisions`, `user_corrections`, `user_rules`; DAO row counts and transactional item/decision writes.
 
-- [ ] Add Room 2.8.4 runtime, KTX, compiler, testing, and schema plugin aliases; add coroutines-test for JVM/instrumented tests and expose `app/schemas` to migration tests.
-- [ ] Write an instrumented test that creates an on-disk database, inserts an item plus decision, closes/reopens it, then updates, completes, and deletes it while asserting each durable state.
-- [ ] Run only `ThwiplyDatabaseTest` and confirm failure because the schema/DAOs do not exist.
-- [ ] Implement v1 entities with foreign keys/indices, DAOs with affected-row return values, and a database class with schema export enabled.
-- [ ] Run the focused database test to green and retain the generated v1 schema JSON.
+- [x] Add Room 2.8.4 runtime, KTX, compiler, testing, and schema plugin aliases; add coroutines-test for JVM/instrumented tests and expose `app/schemas` to migration tests.
+- [x] Write an instrumented test that creates an on-disk database, inserts an item plus decision, closes/reopens it, then updates, completes, and deletes it while asserting each durable state.
+- [x] Run only `ThwiplyDatabaseTest` and confirm failure because the schema/DAOs do not exist.
+- [x] Implement v1 entities with foreign keys/indices, DAOs with affected-row return values, and a database class with schema export enabled.
+- [x] Run the focused database test to green and retain the generated v1 schema JSON.
 
 ### Task 3: Repository contracts and implementations
 
@@ -77,10 +77,10 @@
 **Interfaces:**
 - Produces: repository `Flow<RepositoryResult<List<...>>>` observers and typed create/update/complete/delete/correction/rule operations.
 
-- [ ] Write JVM repository tests proving row mapping, no-row failures, exact SQLite failure translation with the original cause, and no translation of unknown exceptions.
-- [ ] Run the focused repository test and confirm failure because implementations are absent.
-- [ ] Implement mappers and repositories using typed `catch (SQLiteException)` blocks and affected-row checks.
-- [ ] Add real-database tests for atomic item/decision rollback, correction cascade, and rule CRUD; run focused JVM and instrumented tests to green.
+- [x] Write JVM repository tests proving row mapping, no-row failures, exact SQLite failure translation with the original cause, and no translation of unknown exceptions.
+- [x] Run the focused repository test and confirm failure because implementations are absent.
+- [x] Implement mappers and repositories using typed `catch (SQLiteException)` blocks and affected-row checks.
+- [x] Add real-database tests for atomic item/decision rollback, correction cascade, and rule CRUD; run focused JVM and instrumented tests to green.
 
 ### Task 4: Schema v2 migration, retention, and privacy erasure
 
@@ -97,11 +97,11 @@
 **Interfaces:**
 - Produces: `MIGRATION_1_2`, `DEFAULT_NOTIFICATION_RETENTION_MILLIS`, `purgeExpiredNotificationData(nowEpochMillis)`, and `deleteAllNotificationDataAndRules()`.
 
-- [ ] Write a migration test that seeds all four v1 tables, migrates to v2, validates the exported schema, verifies every row/value survived, and verifies a notification expiry was backfilled while manual expiry remains null.
-- [ ] Run the migration test and confirm it fails because schema v2/migration do not exist.
-- [ ] Add nullable `retention_expires_at_epoch_millis`, the manual migration, expiry assignment for new notification records, and no destructive fallback.
-- [ ] Write failing database tests for cutoff boundaries and delete-all; include notification/manual items, decisions, corrections, and rules.
-- [ ] Implement transactional purge/delete-all and prove expired notification records/rules are removed while manual records remain.
+- [x] Write a migration test that seeds all four v1 tables, migrates to v2, validates the exported schema, verifies every row/value survived, and verifies a notification expiry was backfilled while manual expiry remains null.
+- [x] Run the migration test and confirm it fails because schema v2/migration do not exist.
+- [x] Add nullable `retention_expires_at_epoch_millis`, the manual migration, expiry assignment for new notification records, and no destructive fallback.
+- [x] Write failing database tests for cutoff boundaries and delete-all; include notification/manual items, decisions, corrections, and rules.
+- [x] Implement transactional purge/delete-all and prove expired notification records/rules are removed while manual records remain.
 
 ### Task 5: Hilt wiring
 
@@ -112,8 +112,8 @@
 **Interfaces:**
 - Produces: singleton `ThwiplyDatabase`, its DAOs, and bindings for all four repository interfaces.
 
-- [ ] Add providers/bindings and register `MIGRATION_1_2` in the production database builder.
-- [ ] Run `testDebugUnitTest` and `assembleDebug`; treat any Hilt graph failure as the focused red signal, correct only wiring, and rerun to green.
+- [x] Add providers/bindings and register `MIGRATION_1_2` in the production database builder.
+- [x] Run `testDebugUnitTest` and `assembleDebug`; treat any Hilt graph failure as the focused red signal, correct only wiring, and rerun to green.
 
 ### Task 6: Repository-backed Today state
 
@@ -122,17 +122,20 @@
 - Create: `app/src/main/java/thwiply/elopenmike/com/ui/today/TodayUiState.kt`
 - Modify: `app/src/main/java/thwiply/elopenmike/com/ui/today/TodayViewModel.kt`
 - Modify: `app/src/main/java/thwiply/elopenmike/com/ui/today/TodayScreen.kt`
+- Create: `app/src/main/java/thwiply/elopenmike/com/ui/settings/NotificationDataSettingsViewModel.kt`
+- Modify: `app/src/main/java/thwiply/elopenmike/com/ui/settings/SettingsScreen.kt`
 - Test: `app/src/test/java/thwiply/elopenmike/com/ui/today/TodayViewModelTest.kt`
 
 **Interfaces:**
 - Consumes: `TriageRepository` and `RepositoryResult`.
 - Produces: `StateFlow<TodayUiState>`, durable quick-add, complete/uncomplete, and delete actions.
 
-- [ ] Write ViewModel tests for initial loading, repository success with no rows → `Empty`, mapped content, repository read failure → `StorageError`, and create/complete/delete result handling.
-- [ ] Run only `TodayViewModelTest` and confirm failure against the sample-backed ViewModel.
-- [ ] Inject `TriageRepository`, map domain records to presentation `TaskItem`, and implement repository actions without silent fallback.
-- [ ] Update Compose rendering for Loading/Empty/Content/StorageError, remove sample/snippet presentation, and retain truthful filters only.
-- [ ] Re-run ViewModel tests and `assembleDebug` to green.
+- [x] Write ViewModel tests for initial loading, repository success with no rows → `Empty`, mapped content, repository read failure → `StorageError`, and create/complete/delete result handling.
+- [x] Run only `TodayViewModelTest` and confirm failure against the sample-backed ViewModel.
+- [x] Inject `TriageRepository`, map domain records to presentation `TaskItem`, and implement repository actions without silent fallback.
+- [x] Update Compose rendering for Loading/Empty/Content/StorageError, remove sample/snippet presentation, and retain truthful filters only.
+- [x] Add tested automatic retention activation and a confirmed, user-visible delete-all flow in Settings.
+- [x] Re-run ViewModel tests and `assembleDebug` to green.
 
 ### Task 7: Documentation and roadmap evidence
 
@@ -141,9 +144,9 @@
 - Modify: `docs/ROADMAP.md`
 - Modify: this plan's checkboxes as tasks complete.
 
-- [ ] Update README features/architecture/privacy copy to describe durable manual Today data, Room, retention/erasure, and the continued absence of notification ingestion.
-- [ ] Mark only delivered Phase 1 scope complete in ROADMAP, record exact test classes/commands as evidence, keep Phase 2 blocked only by whatever prerequisites genuinely remain, and retain non-promises.
-- [ ] Search docs for claims that Today uses sample data or that app-layer database encryption exists; correct only directly related stale claims.
+- [x] Update README features/architecture/privacy copy to describe durable manual Today data, Room, retention/erasure, and the continued absence of notification ingestion.
+- [x] Mark only delivered Phase 1 scope complete in ROADMAP, record exact test classes/commands as evidence, advance Phase 2 only after its prerequisite is genuinely complete, and retain non-promises.
+- [x] Search docs for claims that Today uses sample data or that app-layer database encryption exists; correct only directly related stale claims.
 
 ### Task 8: Validation, independent review loop, and delivery
 

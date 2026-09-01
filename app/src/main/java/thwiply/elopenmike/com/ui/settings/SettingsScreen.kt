@@ -25,10 +25,13 @@ import thwiply.elopenmike.com.ui.theme.ThemeMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: SettingsViewModel = hiltViewModel()
+    viewModel: SettingsViewModel = hiltViewModel(),
+    notificationDataViewModel: NotificationDataSettingsViewModel = hiltViewModel(),
 ) {
     val themeMode by viewModel.themeMode.collectAsState()
     val activeModel by viewModel.activeModel.collectAsState()
+    val notificationDataState by notificationDataViewModel.state.collectAsState()
+    var confirmDeleteNotificationData by remember { mutableStateOf(false) }
 
     val uriHandler = LocalUriHandler.current
 
@@ -180,6 +183,32 @@ fun SettingsScreen(
                 }
             }
 
+            SettingsSection(title = "Local Notification Data") {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Delete notification-derived tasks, their decisions and " +
+                            "corrections, and every learned rule. Manual tasks are kept.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { confirmDeleteNotificationData = true },
+                        enabled = notificationDataState != NotificationDataDeletionState.Deleting,
+                    ) {
+                        if (notificationDataState == NotificationDataDeletionState.Deleting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Delete notification data and rules")
+                    }
+                }
+            }
+
             // Section 4: Privacy & Security
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -240,6 +269,63 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (confirmDeleteNotificationData) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteNotificationData = false },
+            title = { Text("Delete notification data?") },
+            text = {
+                Text(
+                    "This permanently deletes notification-derived records and all learned " +
+                        "rules on this device. Manual tasks remain.",
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmDeleteNotificationData = false
+                        notificationDataViewModel.deleteAllNotificationDataAndRules()
+                    },
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteNotificationData = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    when (val state = notificationDataState) {
+        is NotificationDataDeletionState.Deleted -> AlertDialog(
+            onDismissRequest = notificationDataViewModel::dismissResult,
+            title = { Text("Local data deleted") },
+            text = {
+                Text(
+                    "Deleted ${state.deletion.notificationItemsDeleted} notification-derived " +
+                        "tasks and ${state.deletion.rulesDeleted} rules.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = notificationDataViewModel::dismissResult) { Text("Done") }
+            },
+        )
+
+        NotificationDataDeletionState.Error -> AlertDialog(
+            onDismissRequest = notificationDataViewModel::dismissResult,
+            title = { Text("Data wasn't deleted") },
+            text = { Text("Thwiply couldn't update local storage. No success was recorded.") },
+            confirmButton = {
+                TextButton(onClick = notificationDataViewModel::dismissResult) { Text("Close") }
+            },
+        )
+
+        NotificationDataDeletionState.Idle,
+        NotificationDataDeletionState.Deleting,
+        -> Unit
     }
 }
 

@@ -153,9 +153,9 @@
 **Files:**
 - Review all changed files and generated Room schema JSON.
 
-- [ ] Run targeted JVM tests, targeted instrumented database/migration tests, `verifyBuildscriptBouncyCastle`, `test lint assembleDebug`, and `connectedDebugAndroidTest` with exact outcomes recorded.
-- [ ] Inspect `git diff --check`, full diff, backup manifest, Room schemas, dependency graph, secrets/debug residue, and generated/untracked files.
-- [ ] Dispatch read-only GPT-5.6 Terra and GPT-5.6 Luna reviewers in parallel with the full requirements, roadmap, final diff range, and fresh test evidence.
-- [ ] Reconcile every concrete finding, add a failing regression test before each valid fix, rerun relevant validation, and document rejected findings with evidence.
-- [ ] Send the same updated revision/evidence to both reviewers and repeat until each explicitly reports no actionable feedback on that revision.
+- [x] Run targeted JVM tests, targeted instrumented database/migration tests, `verifyBuildscriptBouncyCastle`, `test lint assembleDebug`, and `connectedDebugAndroidTest` with exact outcomes recorded.
+- [x] Inspect `git diff --check`, full diff, backup manifest, Room schemas, dependency graph, secrets/debug residue, and generated/untracked files.
+- [x] Dispatch read-only GPT-5.6 Terra and GPT-5.6 Luna reviewers in parallel with the full requirements, roadmap, final diff range, and fresh test evidence.
+- [x] Reconcile every concrete finding, add a failing regression test before each valid fix, rerun relevant validation, and document rejected findings with evidence.
+- [x] Send the same updated revision/evidence to both reviewers and repeat until each explicitly reports no actionable feedback on that revision.
 - [ ] Run final validation again, commit with repository conventions, push `codex/phase-1-durable-local-data`, and create a non-draft PR with the required architecture/privacy/migration/test/review/limitation/roadmap sections.

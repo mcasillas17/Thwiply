@@ -1,0 +1,326 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "58a5d42f47013dcc3e5356e8ead76daf",
+    "entities": [
+      {
+        "tableName": "triage_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `display_title` TEXT NOT NULL, `display_summary` TEXT, `source_kind` TEXT NOT NULL, `source_package_name` TEXT, `source_app_label` TEXT NOT NULL, `source_stable_key_hash` TEXT, `is_high_priority` INTEGER NOT NULL, `created_at_epoch_millis` INTEGER NOT NULL, `due_at_epoch_millis` INTEGER, `completed_at_epoch_millis` INTEGER, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayTitle",
+            "columnName": "display_title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displaySummary",
+            "columnName": "display_summary",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceKind",
+            "columnName": "source_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourcePackageName",
+            "columnName": "source_package_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sourceAppLabel",
+            "columnName": "source_app_label",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceStableKeyHash",
+            "columnName": "source_stable_key_hash",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isHighPriority",
+            "columnName": "is_high_priority",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "created_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dueAtEpochMillis",
+            "columnName": "due_at_epoch_millis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "completedAtEpochMillis",
+            "columnName": "completed_at_epoch_millis",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_triage_items_source_kind_created_at_epoch_millis",
+            "unique": false,
+            "columnNames": [
+              "source_kind",
+              "created_at_epoch_millis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_triage_items_source_kind_created_at_epoch_millis` ON `${TABLE_NAME}` (`source_kind`, `created_at_epoch_millis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "triage_decisions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `triage_item_id` TEXT NOT NULL, `category` TEXT NOT NULL, `explanation` TEXT NOT NULL, `origin` TEXT NOT NULL, `decided_at_epoch_millis` INTEGER NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`triage_item_id`) REFERENCES `triage_items`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triageItemId",
+            "columnName": "triage_item_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "explanation",
+            "columnName": "explanation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "decidedAtEpochMillis",
+            "columnName": "decided_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_triage_decisions_triage_item_id",
+            "unique": true,
+            "columnNames": [
+              "triage_item_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_triage_decisions_triage_item_id` ON `${TABLE_NAME}` (`triage_item_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "triage_items",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "triage_item_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "user_corrections",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `triage_item_id` TEXT NOT NULL, `previous_category` TEXT NOT NULL, `corrected_category` TEXT NOT NULL, `created_at_epoch_millis` INTEGER NOT NULL, `created_rule_id` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`triage_item_id`) REFERENCES `triage_items`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`created_rule_id`) REFERENCES `user_rules`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triageItemId",
+            "columnName": "triage_item_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "previousCategory",
+            "columnName": "previous_category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "correctedCategory",
+            "columnName": "corrected_category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "created_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdRuleId",
+            "columnName": "created_rule_id",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_user_corrections_triage_item_id",
+            "unique": false,
+            "columnNames": [
+              "triage_item_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_user_corrections_triage_item_id` ON `${TABLE_NAME}` (`triage_item_id`)"
+          },
+          {
+            "name": "index_user_corrections_created_rule_id",
+            "unique": false,
+            "columnNames": [
+              "created_rule_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_user_corrections_created_rule_id` ON `${TABLE_NAME}` (`created_rule_id`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "triage_items",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "triage_item_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "user_rules",
+            "onDelete": "SET NULL",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "created_rule_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "user_rules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `package_name` TEXT NOT NULL, `channel_id` TEXT, `action` TEXT NOT NULL, `is_enabled` INTEGER NOT NULL, `created_at_epoch_millis` INTEGER NOT NULL, `updated_at_epoch_millis` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "packageName",
+            "columnName": "package_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channelId",
+            "columnName": "channel_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "action",
+            "columnName": "action",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isEnabled",
+            "columnName": "is_enabled",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "created_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updated_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_user_rules_package_name_channel_id",
+            "unique": false,
+            "columnNames": [
+              "package_name",
+              "channel_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_user_rules_package_name_channel_id` ON `${TABLE_NAME}` (`package_name`, `channel_id`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '58a5d42f47013dcc3e5356e8ead76daf')"
+    ]
+  }
+}

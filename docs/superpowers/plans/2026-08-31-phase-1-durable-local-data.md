@@ -32,10 +32,10 @@
 **Interfaces:**
 - Produces: `TriageItem`, `TriageDecision`, `SourceReference`, `UserCorrection`, `UserRule`, their closed enums, `TriageRecord`, and `RepositoryResult<T>`.
 
-- [ ] Write focused tests that reject blank/oversized display fields, invalid notification provenance, negative timestamps, mismatched correction/rule links, and accept a minimal manual item.
-- [ ] Run `./gradlew testDebugUnitTest --tests '*TriageModelsTest'` and confirm compilation/test failure because the contracts do not exist.
-- [ ] Implement immutable data classes and allowlisted enums with constructor invariants and named limits.
-- [ ] Re-run the focused test and refactor only after green.
+- [x] Write focused tests that reject blank/oversized display fields, invalid notification provenance, negative timestamps, mismatched correction/rule links, and accept a minimal manual item.
+- [x] Run `./gradlew testDebugUnitTest --tests '*TriageModelsTest'` and confirm compilation/test failure because the contracts do not exist.
+- [x] Implement immutable data classes and allowlisted enums with constructor invariants and named limits.
+- [x] Re-run the focused test and refactor only after green.
 
 ### Task 2: Room dependency configuration and schema v1
 
@@ -156,4 +156,3 @@
 - [ ] Reconcile every concrete finding, add a failing regression test before each valid fix, rerun relevant validation, and document rejected findings with evidence.
 - [ ] Send the same updated revision/evidence to both reviewers and repeat until each explicitly reports no actionable feedback on that revision.
 - [ ] Run final validation again, commit with repository conventions, push `codex/phase-1-durable-local-data`, and create a non-draft PR with the required architecture/privacy/migration/test/review/limitation/roadmap sections.
-

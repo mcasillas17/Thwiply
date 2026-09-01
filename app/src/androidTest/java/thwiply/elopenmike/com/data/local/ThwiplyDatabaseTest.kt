@@ -139,6 +139,10 @@ class ThwiplyDatabaseTest {
             original,
             testDecision(id = "immutable-decision", triageItemId = original.id),
         )
+        database.triageDao().toggleTriageItemCompletion(
+            triageItemId = original.id,
+            completedAtEpochMillis = 200,
+        )
         val repository = RoomTriageRepository(database.triageDao())
 
         val result = repository.updateTriageItem(
@@ -163,8 +167,10 @@ class ThwiplyDatabaseTest {
         assertEquals(300L, updated?.dueAtEpochMillis)
         assertEquals("NOTIFICATION", updated?.sourceKind)
         assertEquals(original.sourcePackageName, updated?.sourcePackageName)
+        assertEquals(original.sourceAppLabel, updated?.sourceAppLabel)
         assertEquals(original.sourceStableKeyHash, updated?.sourceStableKeyHash)
         assertEquals(original.createdAtEpochMillis, updated?.createdAtEpochMillis)
+        assertEquals(200L, updated?.completedAtEpochMillis)
         assertEquals(
             original.retentionExpiresAtEpochMillis,
             updated?.retentionExpiresAtEpochMillis,

@@ -6,8 +6,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.res.painterResource
+import thwiply.elopenmike.com.R
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -218,73 +221,28 @@ private fun HeroBanner() {
 @Composable
 private fun GlowingSpiderWebIcon(
     modifier: Modifier = Modifier,
-    accentColor: Color = ElectricCyanAccent
+    accentColor: Color = MaterialTheme.colorScheme.primary
 ) {
     Box(
         modifier = modifier
-            .size(76.dp)
+            .size(80.dp)
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
                     colors = listOf(
-                        accentColor.copy(alpha = 0.3f),
-                        accentColor.copy(alpha = 0.08f),
-                        Color.Transparent
+                        Color(0xFF002F6E),
+                        Color(0xFF001A3D)
                     )
                 )
             )
             .border(2.dp, accentColor, CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(46.dp)) {
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val maxRadius = size.minDimension / 2f
-            val numSpokes = 8
-            val numRings = 3
-
-            val angles = (0 until numSpokes).map { it * (2 * PI / numSpokes) - (PI / 2) }
-
-            // 1. Draw radial spokes
-            angles.forEach { angle ->
-                val endX = center.x + (maxRadius * cos(angle)).toFloat()
-                val endY = center.y + (maxRadius * sin(angle)).toFloat()
-                drawLine(
-                    color = accentColor,
-                    start = center,
-                    end = Offset(endX, endY),
-                    strokeWidth = 2.4.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-
-            // 2. Draw concentric web polygons
-            for (ring in 1..numRings) {
-                val ringRadius = maxRadius * (ring.toFloat() / numRings)
-                val path = Path()
-                angles.forEachIndexed { i, angle ->
-                    val x = center.x + (ringRadius * cos(angle)).toFloat()
-                    val y = center.y + (ringRadius * sin(angle)).toFloat()
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
-                path.close()
-                drawPath(
-                    path = path,
-                    color = accentColor,
-                    style = Stroke(
-                        width = 2.2.dp.toPx(),
-                        cap = StrokeCap.Round,
-                        join = StrokeJoin.Round
-                    )
-                )
-            }
-
-            // 3. Center bright glowing core
-            drawCircle(
-                color = Color.White,
-                radius = 3.5.dp.toPx(),
-                center = center
-            )
-        }
+        Image(
+            painter = painterResource(id = R.drawable.ic_launcher_foreground),
+            contentDescription = "Thwiply Icon",
+            modifier = Modifier.size(58.dp)
+        )
     }
 }
 

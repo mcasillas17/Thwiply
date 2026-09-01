@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- web rings -->
+    <path android:pathData="M54,48 a6,6 0 1,0 12,0 a6,6 0 1,0 -12,0" android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeAlpha="0.45"/>
+    <path android:pathData="M48.6,48 a11.4,11.4 0 1,0 22.8,0 a11.4,11.4 0 1,0 -22.8,0" android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeAlpha="0.45"/>
+    <path android:pathData="M43.2,48 a16.8,16.8 0 1,0 33.6,0 a16.8,16.8 0 1,0 -33.6,0" android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeAlpha="0.45"/>
+
+    <!-- web radials -->
+    <path android:pathData="M60,32.4 L60,63.6" android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeAlpha="0.45" android:strokeLineCap="round"/>
+    <path android:pathData="M45.6,40.8 L74.4,55.2" android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeAlpha="0.45" android:strokeLineCap="round"/>
+    <path android:pathData="M45.6,55.2 L74.4,40.8" android:strokeColor="#FFFFFF" android:strokeWidth="1.8" android:strokeAlpha="0.45" android:strokeLineCap="round"/>
+
+    <!-- spinneret + shot -->
+    <path android:pathData="M31.2,72 a4.8,4.8 0 1,0 9.6,0 a4.8,4.8 0 1,0 -9.6,0" android:strokeColor="#FFFFFF" android:strokeWidth="4.56"/>
+    <path android:pathData="M39.6,68.4 L50.4,57.6" android:strokeColor="#FFFFFF" android:strokeWidth="4.56" android:strokeLineCap="round"/>
+
+    <!-- caught item -->
+    <path android:pathData="M55.2,48 a4.8,4.8 0 1,0 9.6,0 a4.8,4.8 0 1,0 -9.6,0" android:fillColor="#FFFFFF"/>
+</vector>

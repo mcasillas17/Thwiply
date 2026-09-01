@@ -37,4 +37,27 @@ jobs:
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
 
       - name: Run tests, lint, and debug build
-        run: ./gradlew test lint assembleDebug --stacktrace --no-daemon
+        run: |
+          ./gradlew \
+            verifyBuildscriptBouncyCastle \
+            test \
+            lint \
+            assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Build optimized arm64 alpha
+        run: |
+          ./gradlew \
+            :app:assembleAlpha \
+            -Pthwiply.abi=arm64-v8a \
+            -Pthwiply.versionCode=1 \
+            -Pthwiply.versionName=ci-alpha \
+            --stacktrace \
+            --no-daemon
+
+      - name: Enforce arm64 alpha size budget
+        run: |
+          bash scripts/check-apk-size.sh \
+            app/build/outputs/apk/alpha/app-alpha-unsigned.apk \
+            33554432

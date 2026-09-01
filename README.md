@@ -53,7 +53,38 @@ LLM inference runs on the Android device. Internet access is used solely to down
 - About 1.6 GB of free storage for the pinned model, plus installation headroom.
 - Pixel 6 or newer (or equivalent ARM64 / x86_64 device) recommended for hardware-accelerated LLM execution.
 
-### Installation
+### Install an alpha release
+
+Each GitHub alpha release provides separate installable APKs:
+
+- `arm64-v8a` for physical Android devices and ARM64 emulators;
+- `x86_64-emulator` for x86_64 emulators; and
+- `SHA256SUMS` for download verification.
+
+Download only the APK matching the device architecture, then verify it from the
+same directory:
+
+```bash
+# Replace arm64-v8a with x86_64-emulator when verifying the emulator APK.
+# Linux
+grep 'arm64-v8a\.apk$' SHA256SUMS | sha256sum -c -
+
+# macOS
+grep 'arm64-v8a\.apk$' SHA256SUMS | shasum -a 256 -c -
+```
+
+Releases after `v1.0.0-alpha.3` use a persistent alpha signing identity and a
+monotonically increasing Android version code. If `v1.0.0-alpha.3` or an earlier
+debug-signed build is installed, uninstall it once before installing the first
+persistently signed alpha. That uninstall removes local app data and downloaded
+models. Later persistently signed alphas can be installed as updates.
+
+The arm64 alpha is minified, contains only arm64 native libraries, and is
+enforced below 32 MiB. The pinned model is not bundled in the APK; it is
+downloaded and verified after installation.
+
+### Build from source
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/mcasillas17/Thwiply.git
@@ -64,6 +95,9 @@ LLM inference runs on the Android device. Internet access is used solely to down
    ./gradlew assembleDebug
    adb install -r app/build/outputs/apk/debug/app-debug.apk
    ```
+
+Maintainers can find signing, artifact, versioning, and tagged-release
+instructions in [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ### First Launch
 On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted downloads can resume, and the app checks the exact size and SHA-256 digest before activating the model. Once complete, use the **Lab** tab to test local inference.
@@ -84,6 +118,7 @@ The dependency-ordered product roadmap, launch gates, privacy requirements, and 
 - [x] Compose-independent triage domain and repository contracts
 - [x] Durable Room storage, migrations, retention, and privacy erasure
 - [x] Repository-backed Today tasks and real empty/error states
+- [x] Minified, signed, per-ABI alpha distribution with checksum and size gates
 
 ### Notification Triage MVP (Planned)
 - [ ] Notification Listener Service

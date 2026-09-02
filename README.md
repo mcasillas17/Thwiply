@@ -106,27 +106,16 @@ On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted d
 
 ## 🗺️ Roadmap
 
-The dependency-ordered product roadmap, launch gates, privacy requirements, and non-goals live in [`docs/ROADMAP.md`](docs/ROADMAP.md).
+The canonical product roadmap, current status, dependency-ordered execution
+queue, launch gates, privacy requirements, and non-goals live in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-### Secure alpha and durable data foundation (Current)
-- [x] Project architecture (Hilt, Compose, Navigation)
-- [x] Official adaptive vector branding and Android 13+ themed icon support
-- [x] Verified, resumable model installation with SHA-256 validation
-- [x] LiteRT-LM integration and streaming inference
-- [x] Local inference Lab with real-time metrics
-- [x] Truthful feature and privacy status
-- [x] Compose-independent triage domain and repository contracts
-- [x] Durable Room storage, migrations, retention, and privacy erasure
-- [x] Repository-backed Today tasks and real empty/error states
-- [x] Minified, signed, per-ABI alpha distribution with checksum and size gates
+**Current:** The secure alpha and durable local data foundation are complete.
 
-### Notification Triage MVP (Planned)
-- [ ] Notification Listener Service
-- [ ] Per-app consent and allowlist
-- [x] Durable privacy-minimized local persistence foundation
-- [ ] Strict structured triage decisions
-- [ ] Explanation and one-tap correction loop
-- [ ] Real Today / Needs Review surfaces
+**Next:** Foundation hardening precedes Phase 2, which adds explicit
+notification-access consent, an empty-by-default per-app allowlist, and bounded
+notification ingestion. Structured local triage and the trustworthy **Now** /
+**Later** / **Needs review** experience follow in Phases 3 and 4.
 
 ---
 

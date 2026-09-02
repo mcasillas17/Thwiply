@@ -1,7 +1,7 @@
 # Thwiply Product Roadmap
 
-**Status:** Durable local data foundation complete; consent and bounded ingestion are next
-**Last updated:** 2026-08-31
+**Status:** Durable local data foundation complete; foundation hardening and consent-driven ingestion are next
+**Last updated:** 2026-09-01
 
 ## Product direction
 
@@ -36,6 +36,59 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Structured triage pipeline | Not started | Lab output is not connected to persisted product state |
 | Explanations, corrections, and rules | Foundation complete | Durable contracts, tables, DAOs, and repositories exist; correction UX remains Phase 4 |
 | Notification-data lifecycle | Foundation complete | 30-day expiry, automatic purge on Today entry, and confirmed delete-all in Settings |
+| Alpha distribution | Complete | Signed, minified, per-ABI prereleases with checksums and a 32 MiB arm64 size gate |
+
+## Current execution queue
+
+This is the canonical order for work that is ready or dependency-blocked. Phase
+scope and exit gates below remain authoritative when a queue item is
+implemented.
+
+### Foundation hardening before notification ingestion
+
+1. Run the existing Room reopen, migration, and backup instrumentation suites
+   in CI on a managed emulator.
+2. Make Compose state collection lifecycle-aware, handle target SDK 36
+   edge-to-edge insets, move user-facing text into Android resources, and close
+   known accessibility touch-target and semantics gaps.
+3. Persist user preferences, remove orphaned debug and capture-placeholder
+   state, and keep Settings truthful before adding real consent controls.
+4. Revalidate the active model digest after process restart, move model
+   initialization off the main thread, preserve cancellation, expose a stop
+   action, and define native-engine release behavior.
+5. Serialize model downloads, throttle progress emissions, preflight storage
+   and metered-network use, and let users remove downloaded model data.
+6. Correct Lab throughput labels unless LiteRT-LM supplies a verified token
+   count; streamed text emissions are not assumed to be tokens.
+
+### Phase 2 — Consent and bounded notification ingestion
+
+7. Write and approve the Phase 2 design and implementation plan, including
+   consent, service, normalization, queue, diagnostics, and test contracts.
+8. Persist Android notification-access state separately from an
+   empty-by-default per-app allowlist.
+9. Add pre-permission explanation, system-settings handoff, app selection,
+   revocation behavior, and visible permission/allowlist status.
+10. Register a conservatively filtered `NotificationListenerService` whose
+    callbacks only normalize, enqueue, and return.
+11. Bound and normalize allowlisted fields, skip empty or redacted events, and
+    keep raw notification bodies memory-only.
+12. Add idempotency, burst deduplication, bounded backpressure, observable
+    overflow, reconnect/reboot recovery, and privacy-safe local diagnostics.
+13. Pass Phase 2 automated gates and representative physical-device tests.
+
+### Phase 3, Phase 4, and pilot readiness
+
+14. Implement deterministic rules, structured local inference, closed-schema
+    validation, explicit failure states, and **Needs review** fallback.
+15. Ship **Now**, **Later**, and **Needs review** surfaces with provenance,
+    explanations, one-interaction corrections, and editable learned rules.
+16. Measure regret, correction rate, latency, memory, battery, and thermal
+    behavior on supported devices before accepting fixed thresholds or
+    promoting deferred capabilities.
+
+Evidence-led follow-ups remain out of scope until the measurements described
+later in this document justify them.
 
 ## Dependency-ordered delivery plan
 
@@ -228,6 +281,20 @@ Reference: [Android Auto Backup](https://developer.android.com/identity/data/aut
 - Only app-approved, digest-pinned model artifacts can become active.
 - No model output can directly execute an Android action.
 
+### Android quality
+
+- State collection is lifecycle-aware.
+- Target SDK 36 edge-to-edge and window-inset behavior is tested.
+- Interactive controls expose semantics and meet accessible touch targets.
+- User-facing strings are Android resources.
+- Supported phone, tablet, foldable, and window-size layouts remain usable.
+
+### Delivery
+
+- JVM, lint, build, workflow, and Android instrumentation gates run in CI.
+- Release artifacts remain signed, per-ABI, checksummed, and size-bounded.
+- Roadmap completion claims cite code and fresh automated or device evidence.
+
 ## Roadmap maintenance
 
 Each implementation PR should update this document when it:
@@ -237,4 +304,15 @@ Each implementation PR should update this document when it:
 - validates or disproves a listed uncertainty;
 - deliberately accepts a new product capability or non-goal.
 
-Implementation plans belong in `docs/superpowers/plans/`; this file remains the durable product-level source of truth.
+## Supporting records
+
+- [`docs/superpowers/specs/`](superpowers/specs/) contains accepted,
+  point-in-time designs.
+- [`docs/superpowers/plans/`](superpowers/plans/) contains point-in-time
+  implementation instructions.
+- [`docs/RELEASING.md`](RELEASING.md) defines alpha build and publication
+  procedures.
+
+These records preserve rationale and execution history. They do not override
+this file, which is the sole source of truth for current product status,
+ordering, exit gates, and deferred work.

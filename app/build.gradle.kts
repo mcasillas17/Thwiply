@@ -6,6 +6,22 @@ plugins {
     alias(libs.plugins.room)
 }
 
+val supportedAlphaAbis = setOf("arm64-v8a", "x86_64")
+val requestedAbi = providers.gradleProperty("thwiply.abi").orNull
+require(requestedAbi == null || requestedAbi in supportedAlphaAbis) {
+    "thwiply.abi must be one of ${supportedAlphaAbis.sorted()}; received '$requestedAbi'"
+}
+
+val requestedVersionCode = providers.gradleProperty("thwiply.versionCode").orNull?.let { value ->
+    value.toIntOrNull()?.takeIf { it > 0 }
+        ?: error("thwiply.versionCode must be a positive integer; received '$value'")
+}
+val requestedVersionName = providers.gradleProperty("thwiply.versionName").orNull?.also { value ->
+    require(value.isNotBlank()) {
+        "thwiply.versionName must not be blank"
+    }
+}
+
 android {
     namespace = "thwiply.elopenmike.com"
     compileSdk = 36
@@ -16,6 +32,13 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        requestedVersionCode?.let { versionCode = it }
+        requestedVersionName?.let { versionName = it }
+        requestedAbi?.let { abi ->
+            ndk {
+                abiFilters += abi
+            }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -27,6 +50,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        create("alpha") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            matchingFallbacks += listOf("release")
         }
     }
     compileOptions {

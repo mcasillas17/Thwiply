@@ -228,4 +228,3 @@ Open a non-draft PR titled `docs: consolidate the Thwiply roadmap` describing:
 - historical-plan labeling;
 - the new dependency-ordered execution queue; and
 - validation evidence.
-

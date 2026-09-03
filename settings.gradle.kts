@@ -38,7 +38,6 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-val patchedNettyVersion = "4.1.137.Final"
 val patchedCommonsCompressVersion = "1.28.0"
 val patchedJose4jVersion = "0.9.6"
 val patchedBouncyCastleVersion = "1.84"

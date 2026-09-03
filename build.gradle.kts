@@ -21,6 +21,12 @@ buildscript {
                     because("Bouncy Castle 1.79 is vulnerable to CVE-2025-14813")
                 }
             }
+            classpath("org.jdom:jdom2:2.0.6.1") {
+                version {
+                    strictly("2.0.6.1")
+                }
+                because("JDOM 2.0.6 is vulnerable to CVE-2021-33813")
+            }
         }
     }
 }

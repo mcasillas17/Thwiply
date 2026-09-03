@@ -42,6 +42,7 @@ val patchedCommonsCompressVersion = "1.28.0"
 val patchedJose4jVersion = "0.9.6"
 val patchedBouncyCastleVersion = "1.84"
 val patchedJdomVersion = "2.0.6.1"
+val patchedCommonsCompressVersion = "1.28.0"
 
 gradle.beforeProject {
     configurations.configureEach {
@@ -59,9 +60,11 @@ gradle.beforeProject {
                     useVersion(patchedJdomVersion)
                     because("JDOM versions before 2.0.6.1 are vulnerable to CVE-2021-33813")
                 }
-                "org.apache.commons" -> if (requested.name == "commons-compress") {
-                    useVersion(patchedCommonsCompressVersion)
-                    because("Commons Compress 1.27.1 brings vulnerable Commons Lang 3.16.0")
+                "org.apache.commons" -> {
+                    if (requested.name == "commons-compress") {
+                        useVersion(patchedCommonsCompressVersion)
+                        because("Commons Compress 1.27.1 brings vulnerable Commons Lang 3.16.0")
+                    }
                 }
             }
         }

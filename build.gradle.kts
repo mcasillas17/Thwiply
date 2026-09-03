@@ -70,6 +70,12 @@ plugins {
     alias(libs.plugins.room) apply false
 }
 
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.force("org.bitbucket.b_c:jose4j:0.9.6")
+    }
+}
+
 val patchedBouncyCastleVersion = "1.80.2"
 val guardedBouncyCastleModules = setOf(
     "bcprov-jdk18on",

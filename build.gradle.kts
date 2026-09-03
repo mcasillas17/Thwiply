@@ -15,6 +15,12 @@ buildscript {
                 }
                 because("jose4j before 0.9.6 is vulnerable to CVE-2024-29371")
             }
+            classpath("org.apache.commons:commons-lang3:3.18.0") {
+                version {
+                    strictly("3.18.0")
+                }
+                because("Apache Commons Lang before 3.18.0 is vulnerable to CVE-2025-48924")
+            }
             listOf(
                 "bcprov-jdk18on",
                 "bcpkix-jdk18on",
@@ -62,6 +68,19 @@ plugins {
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.room) apply false
+}
+
+val patchedNettyVersion = "4.1.137.Final"
+
+gradle.beforeProject {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "io.netty") {
+                useVersion(patchedNettyVersion)
+                because("Align Netty modules with the fix for GHSA-8c42-7qj2-3j46")
+            }
+        }
+    }
 }
 
 val patchedBouncyCastleVersion = "1.80.2"

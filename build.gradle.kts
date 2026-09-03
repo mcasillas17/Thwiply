@@ -15,6 +15,12 @@ buildscript {
                 }
                 because("jose4j before 0.9.6 is vulnerable to CVE-2024-29371")
             }
+            classpath("org.apache.commons:commons-lang3:3.18.0") {
+                version {
+                    strictly("3.18.0")
+                }
+                because("Apache Commons Lang before 3.18.0 is vulnerable to CVE-2025-48924")
+            }
             listOf(
                 "bcprov-jdk18on",
                 "bcpkix-jdk18on",

@@ -9,6 +9,12 @@ import org.gradle.api.tasks.TaskAction
 buildscript {
     dependencies {
         constraints {
+            classpath("org.bitbucket.b_c:jose4j:0.9.6") {
+                version {
+                    strictly("0.9.6")
+                }
+                because("jose4j before 0.9.6 is vulnerable to CVE-2024-29371")
+            }
             listOf(
                 "bcprov-jdk18on",
                 "bcpkix-jdk18on",

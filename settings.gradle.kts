@@ -39,6 +39,7 @@ plugins {
 }
 
 val patchedBouncyCastleVersion = "1.84"
+val patchedJdomVersion = "2.0.6.1"
 
 gradle.beforeProject {
     configurations.configureEach {
@@ -52,6 +53,18 @@ gradle.beforeProject {
                     useVersion(patchedBouncyCastleVersion)
                     because("Bouncy Castle versions before 1.84 are vulnerable to CVE-2026-0636")
                 }
+                "org.jdom" -> if (requested.name == "jdom2") {
+                    useVersion(patchedJdomVersion)
+                    because("JDOM versions before 2.0.6.1 are vulnerable to CVE-2021-33813")
+                }
+            }
+        }
+    }
+    buildscript.configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.jdom" && requested.name == "jdom2") {
+                useVersion(patchedJdomVersion)
+                because("JDOM versions before 2.0.6.1 are vulnerable to CVE-2021-33813")
             }
         }
     }

@@ -63,7 +63,7 @@ automated or physical-device evidence used to mark it complete. Exact constants,
 schemas, fixtures, and third-party choices belong in the accepted design and
 implementation plan for that task.
 
-## Architecture constraints fixed by the roadmap review
+## Implementation constraints
 
 These decisions are prerequisites, not open implementation options:
 
@@ -431,20 +431,10 @@ Each implementation PR should update this document when it:
 - validates or disproves a listed uncertainty;
 - deliberately accepts a new product capability or non-goal.
 
-## Supporting records
+## Related implementation guidance
 
-- [`docs/superpowers/specs/`](superpowers/specs/) contains accepted,
-  point-in-time designs.
-- [`docs/superpowers/plans/`](superpowers/plans/) contains point-in-time
-  implementation instructions.
-- [`docs/superpowers/specs/2026-09-03-roadmap-task-breakdown-design.md`](superpowers/specs/2026-09-03-roadmap-task-breakdown-design.md)
-  records the independent reviews and roundtable decisions behind this
-  backlog.
-- [`docs/superpowers/plans/2026-09-03-roadmap-task-breakdown.md`](superpowers/plans/2026-09-03-roadmap-task-breakdown.md)
-  records the documentation update procedure.
 - [`docs/RELEASING.md`](RELEASING.md) defines alpha build and publication
   procedures.
 
-These records preserve rationale and execution history. They do not override
-this file, which is the sole source of truth for current product status,
-ordering, exit gates, and deferred work.
+This file is the sole source of truth for current product status, ordering,
+exit gates, and deferred work.

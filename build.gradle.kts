@@ -9,6 +9,18 @@ import org.gradle.api.tasks.TaskAction
 buildscript {
     dependencies {
         constraints {
+            classpath("org.apache.httpcomponents:httpclient:4.5.14") {
+                version {
+                    strictly("4.5.14")
+                }
+                because("Apache HttpClient versions before 4.5.13 are vulnerable to CVE-2020-13956")
+            }
+            classpath("org.apache.httpcomponents:httpmime:4.5.14") {
+                version {
+                    strictly("4.5.14")
+                }
+                because("Align Apache HttpMime with the patched HttpClient release")
+            }
             classpath("org.bitbucket.b_c:jose4j:0.9.6") {
                 version {
                     strictly("0.9.6")

@@ -99,6 +99,19 @@ gradle.settingsEvaluated {
         "Expected settings Bouncy Castle modules at 1.84, but resolved $unexpectedVersions"
     }
 }
+gradle.beforeProject {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (
+                requested.group == "org.apache.httpcomponents" &&
+                requested.name in setOf("httpclient", "httpmime")
+            ) {
+                useVersion("4.5.14")
+                because("Use patched Apache HttpComponents releases for CVE-2020-13956")
+            }
+        }
+    }
+}
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)

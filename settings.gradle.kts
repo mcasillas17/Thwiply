@@ -35,6 +35,19 @@ buildscript {
     }
 }
 
+val patchedBouncyCastleVersion = "1.84"
+
+gradle.beforeProject {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "org.bouncycastle") {
+                useVersion(patchedBouncyCastleVersion)
+                because("Bouncy Castle versions before 1.84 are vulnerable to CVE-2026-0636")
+            }
+        }
+    }
+}
+
 gradle.settingsEvaluated {
     val guardedModules = setOf(
         "bcprov-jdk18on",

@@ -38,6 +38,7 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
+val patchedJose4jVersion = "0.9.6"
 val patchedBouncyCastleVersion = "1.84"
 val patchedJdomVersion = "2.0.6.1"
 
@@ -65,6 +66,10 @@ gradle.beforeProject {
             if (requested.group == "org.jdom" && requested.name == "jdom2") {
                 useVersion(patchedJdomVersion)
                 because("JDOM versions before 2.0.6.1 are vulnerable to CVE-2021-33813")
+            }
+            if (requested.group == "org.bitbucket.b_c" && requested.name == "jose4j") {
+                useVersion(patchedJose4jVersion)
+                because("jose4j before 0.9.6 is vulnerable to CVE-2024-29371")
             }
         }
     }

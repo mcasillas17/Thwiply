@@ -42,7 +42,6 @@ val patchedCommonsCompressVersion = "1.28.0"
 val patchedJose4jVersion = "0.9.6"
 val patchedBouncyCastleVersion = "1.84"
 val patchedJdomVersion = "2.0.6.1"
-val patchedCommonsCompressVersion = "1.28.0"
 
 gradle.beforeProject {
     configurations.configureEach {

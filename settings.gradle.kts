@@ -16,24 +16,11 @@ plugins {
 }
 
 val patchedNettyVersion = "4.1.137.Final"
-val guardedNettyModules = setOf(
-    "netty-common",
-    "netty-buffer",
-    "netty-transport",
-    "netty-resolver",
-    "netty-codec",
-    "netty-codec-http",
-    "netty-codec-http2",
-    "netty-codec-socks",
-    "netty-handler",
-    "netty-handler-proxy",
-    "netty-transport-native-unix-common",
-)
 
 gradle.beforeProject {
     configurations.configureEach {
         resolutionStrategy.eachDependency {
-            if (requested.group == "io.netty" && requested.name in guardedNettyModules) {
+            if (requested.group == "io.netty") {
                 useVersion(patchedNettyVersion)
                 because("Netty 4.1.136.Final and earlier are vulnerable to CVE-2026-55833 and GHSA-8c42-7qj2-3j46")
             }

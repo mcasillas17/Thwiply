@@ -34,6 +34,31 @@ buildscript {
                 because("JDOM 2.0.6 is vulnerable to CVE-2021-33813")
             }
         }
+        components {
+            withModule("com.android.tools.build.jetifier:jetifier-processor") {
+                allVariants {
+                    withDependencies {
+                        removeIf { it.group == "org.jdom" && it.name == "jdom2" }
+                        add("org.jdom:jdom2:2.0.6.1")
+                    }
+                }
+            }
+        }
+    }
+}
+
+val patchedJdomVersion = "2.0.6.1"
+
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy {
+            force("org.jdom:jdom2:$patchedJdomVersion")
+            dependencySubstitution {
+                substitute(module("org.jdom:jdom2"))
+                    .using(module("org.jdom:jdom2:$patchedJdomVersion"))
+                    .because("JDOM 2.0.6 is vulnerable to CVE-2021-33813")
+            }
+        }
     }
 }
 

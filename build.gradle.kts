@@ -76,6 +76,19 @@ allprojects {
     }
 }
 
+val patchedNettyVersion = "4.1.137.Final"
+
+gradle.beforeProject {
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "io.netty") {
+                useVersion(patchedNettyVersion)
+                because("Align Netty modules with the fix for GHSA-8c42-7qj2-3j46")
+            }
+        }
+    }
+}
+
 val patchedBouncyCastleVersion = "1.80.2"
 val guardedBouncyCastleModules = setOf(
     "bcprov-jdk18on",

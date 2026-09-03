@@ -9,23 +9,66 @@ import org.gradle.api.tasks.TaskAction
 buildscript {
     dependencies {
         constraints {
+            classpath("org.bitbucket.b_c:jose4j:0.9.6") {
+                version {
+                    strictly("0.9.6")
+                }
+                because("jose4j before 0.9.6 is vulnerable to CVE-2024-29371")
+            }
             classpath("org.apache.commons:commons-compress:1.28.0") {
                 version {
                     strictly("1.28.0")
                 }
                 because("Commons Compress 1.27.1 brings vulnerable Commons Lang 3.16.0")
             }
+            classpath("org.apache.commons:commons-lang3:3.18.0") {
+                version {
+                    strictly("3.18.0")
+                }
+                because("Apache Commons Lang before 3.18.0 is vulnerable to CVE-2025-48924")
+            }
             listOf(
                 "bcprov-jdk18on",
                 "bcpkix-jdk18on",
                 "bcutil-jdk18on",
             ).forEach { module ->
-                classpath("org.bouncycastle:$module:1.80.2") {
+                classpath("org.bouncycastle:$module:1.84") {
                     version {
-                        strictly("1.80.2")
+                        strictly("1.84")
                     }
-                    because("Bouncy Castle 1.79 is vulnerable to CVE-2025-14813")
+                    because("Bouncy Castle versions before 1.84 are vulnerable to CVE-2026-0636")
                 }
+            }
+            classpath("org.jdom:jdom2:2.0.6.1") {
+                version {
+                    strictly("2.0.6.1")
+                }
+                because("JDOM 2.0.6 is vulnerable to CVE-2021-33813")
+            }
+        }
+        components {
+            withModule("com.android.tools.build.jetifier:jetifier-processor") {
+                allVariants {
+                    withDependencies {
+                        removeIf { it.group == "org.jdom" && it.name == "jdom2" }
+                        add("org.jdom:jdom2:2.0.6.1")
+                    }
+                }
+            }
+        }
+    }
+}
+
+val patchedJdomVersion = "2.0.6.1"
+
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy {
+            force("org.jdom:jdom2:$patchedJdomVersion")
+            dependencySubstitution {
+                substitute(module("org.jdom:jdom2"))
+                    .using(module("org.jdom:jdom2:$patchedJdomVersion"))
+                    .because("JDOM 2.0.6 is vulnerable to CVE-2021-33813")
             }
         }
     }
@@ -64,6 +107,7 @@ plugins {
     alias(libs.plugins.room) apply false
 }
 
+val patchedBouncyCastleVersion = "1.84"
 val patchedNettyVersion = "4.1.137.Final"
 
 gradle.beforeProject {
@@ -77,7 +121,6 @@ gradle.beforeProject {
     }
 }
 
-val patchedBouncyCastleVersion = "1.80.2"
 val guardedBouncyCastleModules = setOf(
     "bcprov-jdk18on",
     "bcpkix-jdk18on",

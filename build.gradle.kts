@@ -9,11 +9,11 @@ import org.gradle.api.tasks.TaskAction
 buildscript {
     dependencies {
         constraints {
-            classpath("org.apache.commons:commons-lang3:3.18.0") {
+            classpath("org.apache.commons:commons-compress:1.28.0") {
                 version {
-                    strictly("3.18.0")
+                    strictly("1.28.0")
                 }
-                because("Apache Commons Lang before 3.18.0 is vulnerable to CVE-2025-48924")
+                because("Commons Compress 1.27.1 brings vulnerable Commons Lang 3.16.0")
             }
             listOf(
                 "bcprov-jdk18on",

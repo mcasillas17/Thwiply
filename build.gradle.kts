@@ -14,11 +14,11 @@ buildscript {
                 "bcpkix-jdk18on",
                 "bcutil-jdk18on",
             ).forEach { module ->
-                classpath("org.bouncycastle:$module:1.80.2") {
+                classpath("org.bouncycastle:$module:1.84") {
                     version {
-                        strictly("1.80.2")
+                        strictly("1.84")
                     }
-                    because("Bouncy Castle 1.79 is vulnerable to CVE-2025-14813")
+                    because("Bouncy Castle versions before 1.84 are vulnerable to CVE-2026-0636")
                 }
             }
         }
@@ -58,7 +58,7 @@ plugins {
     alias(libs.plugins.room) apply false
 }
 
-val patchedBouncyCastleVersion = "1.80.2"
+val patchedBouncyCastleVersion = "1.84"
 val guardedBouncyCastleModules = setOf(
     "bcprov-jdk18on",
     "bcpkix-jdk18on",

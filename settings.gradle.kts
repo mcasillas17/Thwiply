@@ -15,14 +15,6 @@ pluginManagement {
 val patchedNettyVersion = "4.1.137.Final"
 
 buildscript {
-    configurations.classpath {
-        resolutionStrategy.eachDependency {
-            if (requested.group == "io.netty" && requested.name == "netty-codec-http") {
-                useVersion("4.1.137.Final")
-                because("Netty versions before 4.1.137.Final are vulnerable to CVE-2026-55833, GHSA-8c42-7qj2-3j46, and GHSA-v8h7-rr48-vmmv")
-            }
-        }
-    }
     repositories {
         mavenCentral()
     }

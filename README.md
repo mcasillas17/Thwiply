@@ -26,6 +26,7 @@ LLM inference runs on the Android device. Internet access is used solely to down
 - **Verified Model Installation:** Resumable download, exact-size validation, SHA-256 verification, and atomic activation.
 - **On-Device LLM Lab:** Runs Qwen 2.5 1.5B through LiteRT-LM for local prompt experiments, structured extraction testing, and live performance metrics.
 - **Durable Today Tasks:** Manual tasks, completion-state updates, and deletions survive app and database recreation through the repository layer.
+- **Optional Model Setup:** Today and Settings are available without model weights. Enter or resume setup from inside the app; Lab enables inference only when its model and local engine are ready.
 - **Privacy-Minimized Data Foundation:** Versioned Room schemas, explicit migrations, 30-day retention for future notification-derived records, a confirmed delete-all control, and explicit database exclusions from cloud backup and device transfer.
 - **Real Empty and Failure States:** Today reflects repository-backed `Flow` state instead of hardcoded sample tasks and distinguishes an empty database from a storage failure.
 - **Settings & Theme Manager:** Live support for **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan).
@@ -50,8 +51,8 @@ LLM inference runs on the Android device. Internet access is used solely to down
 
 ### Prerequisites
 - Android device or emulator with **Min SDK 31 (Android 12+)**.
-- About 1.6 GB of free storage for the pinned model, plus installation headroom.
-- Pixel 6 or newer (or equivalent ARM64 / x86_64 device) recommended for hardware-accelerated LLM execution.
+- For optional Lab inference: about 1.6 GB of free storage for the pinned model, plus installation headroom.
+- For LLM execution: Pixel 6 or newer (or equivalent ARM64 / x86_64 device) recommended.
 
 ### Install an alpha release
 
@@ -80,8 +81,8 @@ persistently signed alpha. That uninstall removes local app data and downloaded
 models. Later persistently signed alphas can be installed as updates.
 
 The arm64 alpha is minified, contains only arm64 native libraries, and is
-enforced below 32 MiB. The pinned model is not bundled in the APK; it is
-downloaded and verified after installation.
+enforced below 32 MiB. The pinned model is not bundled in the APK; you can
+choose to download and verify it through model setup after installation.
 
 ### Build from source
 
@@ -100,7 +101,45 @@ Maintainers can find signing, artifact, versioning, and tagged-release
 instructions in [`docs/RELEASING.md`](docs/RELEASING.md).
 
 ### First Launch
-On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted downloads can resume, and the app checks the exact size and SHA-256 digest before activating the model. Once complete, use the **Lab** tab to test local inference.
+
+Thwiply opens **Today** without downloading a model. Create and manage manual
+tasks immediately, or open **Settings** for preferences and the confirmed
+notification-data deletion control. These features remain available when a
+model is missing or unusable.
+
+Choose **Model setup** in Settings, or from Lab when setup is needed. Use
+**Download or resume model** to install the pinned Qwen 2.5 1.5B model, or
+**Retry download** after a failure. Back and **Return to app** return to the
+previous shell tab. Setup completion waits for your explicit return; it does
+not redirect you away from manual work.
+
+Interrupted downloads retain partial data and resume when supported by the
+server. Leaving setup cancels its download collection; an in-flight network
+read may take time to unwind before another attempt can start. Downloads are
+not scheduled to run in the background. Downloaded files must pass exact-size
+and SHA-256 checks before activation.
+
+The **Lab** tab is always reachable. It shows missing-model, initialization,
+and failure states, and enables inference only when a model is available and
+the local engine is ready for that model. Opening Lab initializes an installed
+model; failed initialization offers **Retry initialization** and **Model
+setup**. Today and Settings remain usable while initialization runs.
+
+```mermaid
+flowchart TD
+    launch["Cold launch"] --> shell["Main shell: Today, Lab, Settings"]
+    shell --> today["Today: manual tasks"]
+    shell --> settings["Settings: preferences and deletion"]
+    shell --> lab["Lab"]
+    settings -->|Model setup| setup["Optional model setup"]
+    lab -->|Model setup when needed| setup
+    setup -->|Back or Return to app: previous tab| shell
+    setup -->|Retry or resume download| setup
+    lab --> ready{"Model available and engine ready?"}
+    ready -->|Yes| inference["Local inference enabled"]
+    ready -->|No| gated["Inference disabled: missing, initializing, or failed"]
+    gated -->|Retry initialization when needed| lab
+```
 
 ---
 

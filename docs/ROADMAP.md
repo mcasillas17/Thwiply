@@ -1,7 +1,7 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; foundation hardening and Phase 2 design are ready; notification ingestion is not started
-**Last updated:** 2026-09-03
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-02 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Last updated:** 2026-09-05
 
 ## Product direction
 
@@ -30,6 +30,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Area | State | Evidence and open work |
 |---|---|---|
 | Secure model installation | Core delivered; hardening open | Pinned HTTPS artifact, exact size, SHA-256 activation, and atomic install exist; restart adoption checks length but not the digest |
+| Model-optional app shell | FND-02 complete | Today, Settings, and deletion controls are available without weights; optional setup returns to the previous tab, and Lab gates inference on the existing model/engine readiness contract |
 | Local LiteRT-LM Lab | Alpha available; hardening open | Process-owned serialized engine and streaming UI exist; initialization, cancellation, arbitration, and throughput labels need correction |
 | Product copy and privacy status | User-facing copy truthful; dead state remains | The UI says capture is unavailable, but unused notification/screenshot capture flags still default to enabled in `SettingsViewModel` |
 | Durable task and decision data | Phase 1 delivered scope complete | Room v2, exported schemas, repositories, and restart tests exist; category projection and end-to-end correction application are not implemented |
@@ -93,7 +94,7 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. Start `FND-01` through `FND-05`, `FND-07`, `FND-12`, and `FND-14` in
+1. `FND-02` is complete. Start `FND-01`, `FND-03` through `FND-05`, `FND-07`, `FND-12`, and `FND-14` in
    parallel where ownership permits.
 2. Complete `FND-06` after its resource prerequisite and complete the model and
    Lab chain `FND-08` through `FND-11`.
@@ -111,7 +112,7 @@ These decisions are prerequisites, not open implementation options:
 | ID | Status | Outcome and implementation | Depends on | Completion evidence |
 |---|---|---|---|---|
 | FND-01 | Ready | Run existing Room reopen, migration, backup, and future service instrumentation in CI using a managed emulator job separate from the fast JVM/lint/build job. Preserve logs and make the device job required before merge. | None | `ThwiplyDatabaseTest`, `ThwiplyMigrationTest`, and `BackupConfigurationTest` execute in CI; a deliberately failing instrumentation test fails the job. |
-| FND-02 | Ready | Replace model-gated root navigation with an app shell that always exposes manual Today and Settings. Model setup becomes a resumable feature state, not an entrance requirement. | None | Cold launches with missing, downloading, corrupt, removed, and failed models can create/read manual tasks, open Settings, and start or retry model setup. |
+| FND-02 | Complete | Replace model-gated root navigation with an app shell that always exposes manual Today and Settings. Model setup becomes a resumable feature state, not an entrance requirement. | None | Missing, partial-download, truncated, removed, installed, and failed-engine fixtures preserve manual work and Settings; setup exit, retry, completion, and restoration are covered. See the FND-02 evidence below for actual emulator results and simulation boundaries. |
 | FND-03 | Ready | Add lifecycle-aware Compose flow collection and subscription policies. Replace screen-level `collectAsState()` usage, stop off-screen Room observation, and test foreground/background transitions. | None | App flows are collected only while their owners are active; process/background tests show no duplicate observers or lost visible state. |
 | FND-04 | Ready | Implement target SDK 36 edge-to-edge, status/navigation/IME insets, light/dark system-bar appearance, and adaptive phone/tablet/foldable layouts without changing product information architecture. | None | API 31 and 36 device tests cover gesture and three-button navigation, cutouts, IME use, rotation, and representative window sizes without clipped controls. |
 | FND-05 | Ready | Move user-facing copy, formatted counts, dates, accessibility labels, and errors into Android string/plural resources. Keep locale expansion separate until pilot scope chooses supported locales. | None | Android lint reports no production hardcoded-text violations; formatted/plural strings render correctly in unit or Compose tests. |
@@ -124,6 +125,39 @@ These decisions are prerequisites, not open implementation options:
 | FND-12 | Ready | Centralize notification-data cleanup at app startup, Today entry, and active ingestion boundaries; make purge failure diagnostic but never hide manual rows; add at most one best-effort local cleanup run per day with no network or model work. | None | Expired notification-derived records are purged on the next eligible boundary; periodic work is uniquely scheduled and bounded to one delete transaction per run; injected purge failure still renders manual tasks. |
 | FND-13 | Blocked | Audit packaged consumer rules, add only demonstrated R8/serialization/JNI rules, and run the minified alpha on an emulator and representative arm64 device through launch, model verification, initialization, and one generation. | FND-01, FND-08, FND-09, FND-10, FND-11 | The exact signed/minified variant launches and infers on device; mapping/keep evidence is archived; the arm64 size gate and per-ABI checks remain green. |
 | FND-14 | Ready | Repair release truth and maintenance policy: add the declared MIT license, display `BuildConfig.VERSION_NAME`, document supported toolchain/dependency baselines, remove or justify unused dependencies, and keep security maintenance separate from product phase status. | None | README license link resolves; installed build reports the packaged version; dependency verification and latest `main` CI are green; prerelease toolchain use has an explicit rationale or is replaced with evidence. |
+
+FND-02 evidence was recorded on 2026-09-05:
+
+- [`AppNavigationTest`](../app/src/androidTest/java/thwiply/elopenmike/com/AppNavigationTest.kt)
+  covers the model-state routing fixtures, installed startup, initialization,
+  failure/retry, setup completion, repeated entry, and saved-state restoration
+  using real Compose screens and Room with a fake native engine.
+- [`ModelOptionalLaunchTest`](../app/src/androidTest/java/thwiply/elopenmike/com/ModelOptionalLaunchTest.kt)
+  runs the real activity, Hilt, and Room without weights, including task
+  persistence across activity recreation, gated inference, Settings deletion
+  confirmation, and setup Back paths. Run it on a test device without an
+  installed model; it fails explicitly if that precondition is false.
+- The full API 36 Google APIs ARM64 emulator suite executed **22 tests**
+  (11 existing and 11 new), with no failures or skips. Separate emulator smoke
+  checks covered cold launch, process death and restoration through Recents,
+  rotation while setup was open, Back to Settings, and persisted Today tasks.
+- The JVM suite executed **52 tests**, with no failures, errors, or skips.
+  New setup/Lab tests cover duplicate-call guards, readiness, retry, and
+  cancellation. `OnboardingDownloadTest` uses real ModelManager/OkHttp with a
+  local test server to prove partial-byte retention, range resume, and no
+  overlapping retry while a cancelled request unwinds.
+- `verifyBuildscriptBouncyCastle test lint assembleDebug` and the minified
+  arm64 `:app:assembleAlpha` build passed. Lint reported no errors and 31
+  warnings; the alpha APK was 26,159,006 bytes, below the 32 MiB gate.
+
+These navigation tests use tiny model fixtures and simulated native readiness;
+they do not prove full-model inference or equal-length corruption detection.
+The existing restart length check rejects the truncated fixture; digest
+revalidation remains `FND-08`, broader engine lifecycle remains `FND-09`, and
+download architecture remains `FND-10`. No physical-device or minified native
+inference smoke is claimed. `FND-08` and `P2-02` remain **Blocked**
+on their other listed prerequisites. See [setup guidance and navigation
+diagram](../README.md#first-launch).
 
 ### Phase 2 - consent and bounded notification ingestion
 

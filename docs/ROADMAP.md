@@ -129,7 +129,7 @@ These decisions are prerequisites, not open implementation options:
 FND-01 evidence was recorded on 2026-09-05: the negative run executed 12 tests
 (11 passed, one deliberate assertion failed), retained reports/logs, and left
 merge blocked. The restored run executed 11 tests with no failures or skips;
-both the device and unchanged fast CI jobs passed. There is no outstanding
+both the device and preserved fast CI jobs passed. There is no outstanding
 administrator action for the instrumentation requirement. Existing deletion
 and force-push rules were preserved. Reports have 14-day artifact retention;
 the linked run logs identify the test, result, and revision after artifacts

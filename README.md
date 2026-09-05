@@ -89,7 +89,9 @@ downloaded and verified after installation.
    ```bash
    git clone https://github.com/mcasillas17/Thwiply.git
    ```
-2. Open the project in **Android Studio (Ladybug 2024.2+ or newer)**.
+2. Open the project in **Android Studio Quail 1 (2026.1.1)** or a newer release
+   supporting AGP 9.2, per the
+   [official compatibility table](https://developer.android.com/build/releases/about-agp#android_gradle_plugin_and_android_studio_compatibility).
 3. Build and install the debug APK:
    ```bash
    ./gradlew assembleDebug
@@ -98,6 +100,9 @@ downloaded and verified after installation.
 
 Maintainers can find signing, artifact, versioning, and tagged-release
 instructions in [`docs/RELEASING.md`](docs/RELEASING.md).
+
+### First Launch
+On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted downloads can resume, and the app checks the exact size and SHA-256 digest before activating the model. Once complete, use the **Lab** tab to test local inference.
 
 ### Android instrumentation
 
@@ -232,9 +237,6 @@ Common failures:
 | Boot, snapshot, or rendering timeout | Read the retained SDK and Gradle logs first; check acceleration and host ABI. Use the documented SwiftShader command; do not hide the failure or raise limits without evidence. |
 | Missing, skipped, or zero-count tests | Inspect XML and test discovery; remove unintended filters and rerun the full clean command. APK assembly is not test execution. |
 | Cancelled CI run | New pushes supersede older runs. Wait for the latest run; cancellation is neither a passing check nor assertion-failure evidence. |
-
-### First Launch
-On first launch, Thwiply downloads the pinned Qwen 2.5 1.5B model. Interrupted downloads can resume, and the app checks the exact size and SHA-256 digest before activating the model. Once complete, use the **Lab** tab to test local inference.
 
 ---
 

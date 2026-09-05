@@ -82,13 +82,22 @@ build logs, release assets, or an unencrypted backup.
 Read the fingerprint from the offline keystore. This, not any CI output, is the
 source of truth.
 
+`keytool` prints the digest labelled, colon-separated and upper-case; the
+workflows report it as bare lower-case hex. Normalise it here so the two are
+directly comparable, and so the value can be pasted without further editing:
+
 ```bash
 keytool -list -v \
   -keystore thwiply-alpha-signing.p12 \
   -storetype PKCS12 \
   -alias thwiply-alpha |
-  grep 'SHA256:'
+  sed -n 's/.*SHA256: //p' |
+  tr -d ':' |
+  tr 'A-Z' 'a-z'
 ```
+
+This prints 64 lower-case hex characters and nothing else. Keeping the
+`SHA256:` label makes the pin invalid, not merely untidy.
 
 ### 4. Store the secrets in the environment
 
@@ -103,9 +112,10 @@ gh secret set ALPHA_KEY_ALIAS --env alpha-signing
 gh secret set ALPHA_KEY_PASSWORD --env alpha-signing
 ```
 
-Each `gh secret set` without a value prompts for one on a terminal that does not
-echo. Do not pass secret values as command-line arguments, and do not paste them
-into chat, tickets, or pull requests.
+The first command reads the keystore from the pipe; the other three prompt for
+their value on a terminal that does not echo. Do not pass secret values as
+command-line arguments, and do not paste them into chat, tickets, or pull
+requests.
 
 Leave `ALPHA_SIGNING_CERT_SHA256` unset for now. It is pinned in
 [Confirm the signing identity](#confirm-the-signing-identity), after a preflight
@@ -216,6 +226,13 @@ gh workflow run "Alpha release preflight" \
   -f signing_key=test-key
 ```
 
+`--ref` accepts a branch or tag name, not a commit SHA, so a preflight always
+validates the current tip of the ref it is dispatched on. If `main` advances
+after a preflight, the earlier candidate is still tag-able - the publishing
+workflow only requires the tagged commit to be contained in `main` - but it
+cannot be preflighted again. Re-run the preflight against the new tip and
+gather fresh device evidence for it.
+
 `candidate_version` only names the version to simulate; no tag is created.
 `signing_key` selects the identity:
 
@@ -239,16 +256,20 @@ only way to learn what the configured secrets actually produce - a `test-key`
 run reports the throwaway key's fingerprint, which is meaningless here.
 
 Compare the `Certificate SHA-256` line in the run's `CANDIDATE.txt` against the
-`keytool -list -v` output from
-[Record the expected fingerprint](#3-record-the-expected-fingerprint). They must
-match. If they do not, the wrong keystore is in the secrets - stop and correct
-that before going further.
+value from [Record the expected fingerprint](#3-record-the-expected-fingerprint).
+Both are bare lower-case hex, so they should be identical character for
+character. If they are not, the wrong keystore is in the secrets - stop and
+correct that before going further.
 
 Once they match, pin it:
 
 ```bash
-gh variable set ALPHA_SIGNING_CERT_SHA256 --body "<SHA-256 from keytool>"
+gh variable set ALPHA_SIGNING_CERT_SHA256 --body "<64 hex characters from step 3>"
 ```
+
+Unlike the secrets, this is a repository variable rather than an environment
+one. It is public certificate metadata and a correctness check, not an access
+gate, so it does not need the reviewer that guards the keystore.
 
 Both workflows then verify every signed APK against that value. A tag pushed
 while the variable is unset fails at `Validate signing secrets`, before anything
@@ -264,6 +285,8 @@ certificate fingerprint and whether it was pinned, and the checksums.
 
 Hand device testers the artifact. Never hand over the keystore, the passwords,
 or any secret value - none of them are needed to install or test an APK.
+Artifacts are retained for 14 days, so gather device evidence before then or
+re-run the preflight.
 
 The filename states what a build is, so it cannot be mistaken by name alone:
 
@@ -281,16 +304,24 @@ The filename states what a build is, so it cannot be mistaken by name alone:
 Verify a downloaded candidate the same way a tester verifies a release:
 
 ```bash
-# Linux
+# Linux - both APKs
+sha256sum -c SHA256SUMS
+# macOS - both APKs
+shasum -a 256 -c SHA256SUMS
+```
+
+To check only the APK a tester downloaded, filter first:
+
+```bash
 grep 'arm64-v8a\.apk$' SHA256SUMS | sha256sum -c -
-# macOS
-grep 'arm64-v8a\.apk$' SHA256SUMS | shasum -a 256 -c -
 ```
 
 ### When a preflight fails
 
 | Failure | Meaning and recovery |
 | --- | --- |
+| `Expected fingerprint must be a SHA-256 hex digest` | `ALPHA_SIGNING_CERT_SHA256` still carries the `SHA256:` label or colons from `keytool`. Re-read step 3; the pin must be 64 bare hex characters. |
+| `Candidate revision must be contained in origin/main` | The preflight was dispatched on a ref whose tip is not in `main`. Merge first. |
 | `Missing ALPHA_KEYSTORE_BASE64` (or another secret) | The secret is absent, or the run did not reach the `alpha-signing` environment. Re-check step 4 of provisioning. |
 | `Signing certificate does not match the pinned identity` | The keystore in the secrets is not the one that was pinned. Do not edit the pin to match the key. Establish which is correct first; a genuinely rotated key means every install must be uninstalled and reinstalled. |
 | `Expected exactly one signer certificate` | The two APKs were signed by different certificates. Treat the run as untrusted. |
@@ -327,14 +358,23 @@ git fetch origin main --tags
 git push origin <source commit from CANDIDATE.txt>:refs/tags/v1.0.0-alpha.4
 ```
 
-Confirm the tag points where it should before anything else runs:
+This refspec form creates the tag on the remote only; it leaves no local tag,
+so `git rev-parse v1.0.0-alpha.4` will not resolve. Confirm what actually
+landed by asking the remote:
 
 ```bash
-git rev-parse v1.0.0-alpha.4^{commit}
+git ls-remote origin refs/tags/v1.0.0-alpha.4
 ```
 
-The tag push starts `Release optimized alpha APKs`, which waits for the
-`alpha-signing` environment's required reviewer. It then re-validates tag syntax
+The push has already started `Release optimized alpha APKs` by this point, so
+this confirms the tag rather than gating it. What holds the run is the
+`alpha-signing` environment's required reviewer: the run pauses at the signing
+job and waits. Open the run, use **Review deployments**, check that the commit
+shown matches `CANDIDATE.txt`, and approve only then. If it does not match,
+reject the deployment and delete the tag with
+`git push origin :refs/tags/v1.0.0-alpha.4` before anything is signed.
+
+Once approved, the workflow It then re-validates tag syntax
 and `main` ancestry, runs tests and lint, builds both ABIs, signs them, verifies
 the certificate against the pin, confirms the packaged version and per-ABI
 native code, enforces the arm64 size budget, generates checksums, and creates
@@ -343,12 +383,26 @@ artifacts, so every gate runs again against exactly what is published.
 
 ### If publication fails
 
-Because identity is verified before the prerelease is created, a failure after
-signing leaves no partial release: nothing was published, so fix the cause and
-push a new tag.
+Every gate up to and including signing, certificate pinning, and packaged
+identity runs before `Create GitHub prerelease`, so a failure in any of them
+publishes nothing: fix the cause and push a new tag.
 
-A tag pushed in error can be deleted with
-`git push origin :refs/tags/v1.0.0-alpha.4`, but do not reuse a version number
-that has already been published - `versionCode` derives from the commit count,
-and testers may already have installed it. Move to the next alpha number
+The publish step itself is not atomic. `gh release create` creates the release
+and then uploads the assets, so a failure partway through can leave a visible
+prerelease carrying only some of its files. If the run failed at that step,
+check before assuming nothing shipped:
+
+```bash
+gh release view v1.0.0-alpha.4 --repo <owner>/<repo>
+```
+
+If a release exists, delete it and the tag before retrying:
+
+```bash
+gh release delete v1.0.0-alpha.4 --repo <owner>/<repo> --cleanup-tag
+```
+
+Do not reuse a version number whose assets testers may already have downloaded
+- `versionCode` derives from the commit count, so a rebuilt alpha.4 at a new
+commit is a different build under the same name. Move to the next alpha number
 instead.

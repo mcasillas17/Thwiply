@@ -95,6 +95,8 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/instrumentation"
           {
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends libpulse0
             sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
             "$sdkmanager" --licenses <<< "$(printf 'y\n%.0s' {1..100})"
             "$sdkmanager" --install "emulator" "platform-tools" \

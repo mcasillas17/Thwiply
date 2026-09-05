@@ -62,6 +62,8 @@ reject_text "CI cannot use privileged PR triggers" "$ci_workflow" "pull_request_
 reject_text "CI cannot use signing secrets" "$ci_workflow" 'secrets.'
 require_text "CI provisions the emulator explicitly" "$ci_workflow" \
   '--install "emulator" "platform-tools"'
+require_text "CI installs the emulator host library" "$ci_workflow" \
+  "sudo apt-get install --yes --no-install-recommends libpulse0"
 require_text "CI provisions the matching system image" "$ci_workflow" \
   '"system-images;android-36;google_apis;x86_64"'
 require_text "CI does not reuse managed-device caches" "$ci_workflow" \

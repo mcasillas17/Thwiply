@@ -369,7 +369,8 @@ jobs:
           # after the artifact had already left the runner.
           material="$(
             find "$CANDIDATE_DIR" \
-              \( -name '*.p12' -o -name '*.jks' -o -name '*.keystore' -o -name '*.pem' \) \
+              \( -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \
+                 -o -name '*.pem' -o -type l \) \
               -print
           )"
           if [[ -n "$material" ]]; then

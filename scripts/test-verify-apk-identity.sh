@@ -133,6 +133,16 @@ expect_failure_containing \
   "surfaces aapt2's own error when it cannot read the APK" \
   "failed to open APK" \
   "$verifier" "$good_aapt2" "$truncated_apk" arm64-v8a 1234 1.0.0-alpha.4
+# A missing unzip must be named, not misreported as "no native libraries".
+if output="$(PATH=/var/empty /bin/bash "$verifier" \
+  "$good_aapt2" "$arm_apk" arm64-v8a 1234 1.0.0-alpha.4 2>&1)"; then
+  record_fail "reports a missing unzip (unexpected success)"
+elif [[ "$output" == *"unzip is required"* ]]; then
+  record_pass "reports a missing unzip rather than blaming the ABI filter"
+else
+  record_fail "reports a missing unzip (missing 'unzip is required' in: $output)"
+fi
+
 expect_failure_containing \
   "rejects a non-executable aapt2" \
   "aapt2 is not executable" \

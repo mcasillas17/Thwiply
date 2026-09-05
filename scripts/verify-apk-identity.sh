@@ -26,6 +26,11 @@ if [[ ! -x "$aapt2" ]]; then
   exit 2
 fi
 
+if ! command -v unzip > /dev/null 2>&1; then
+  echo "unzip is required to read APK entries but was not found" >&2
+  exit 2
+fi
+
 if [[ ! -f "$apk" ]]; then
   echo "APK does not exist: $apk" >&2
   exit 2

@@ -410,18 +410,21 @@ assert triggers(release) == {"push"}, f"release triggers drifted: {triggers(rele
 # overrides the top-level one, so neither may widen the token.
 def permissions(workflow):
     block = re.search(r"^permissions:\n((?:  \S.*\n|\n)*)", workflow, re.MULTILINE)[1]
-    return dict(
-        line.split(":", 1)[0].strip() and
-        (line.split(":", 1)[0].strip(), line.split(":", 1)[1].strip())
-        for line in block.splitlines() if line.strip()
-    )
+    return {
+        scope.strip(): level.strip()
+        for scope, _, level in (line.partition(":") for line in block.splitlines())
+        if scope.strip()
+    }
 
-assert permissions(preflight) == {"contents": "read"}, (
-    f"preflight token must be exactly contents: read, got {permissions(preflight)}"
-)
-assert permissions(ci) == {"contents": "read"}, (
-    f"CI token must be exactly contents: read, got {permissions(ci)}"
-)
+# Exact sets, so a scope added alongside the expected one is rejected.
+for name, workflow, expected in (
+    ("preflight", preflight, {"contents": "read"}),
+    ("ci", ci, {"contents": "read"}),
+    ("release", release, {"contents": "write"}),
+):
+    assert permissions(workflow) == expected, (
+        f"{name} token must be exactly {expected}, got {permissions(workflow)}"
+    )
 for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci)):
     assert "write-all" not in workflow, f"{name}: write-all token"
     assert not re.search(r"^    permissions:", workflow, re.MULTILINE), (
@@ -484,10 +487,14 @@ for guard in ('if [[ -n "$material" ]]; then', 'if [[ -n "$unexpected" ]]; then'
               'if [[ ! -f "$required" ]]; then'):
     assert guard in staged, f"staged-upload check must fail on: {guard}"
 assert staged.count("exit 1") >= 3, "staged-upload check must fail the job"
-# upload-artifact follows symlinks, so `-type f` would let a symlink named
-# *.apk pointing at the keystore through the allowlist.
+# upload-artifact follows symlinks, and the name allowlist would pass one
+# called *.apk that points at the keystore, so any symlink at all must be
+# treated as signing material regardless of its name.
+assert "-o -type l" in staged, (
+    "the staged-upload check must treat every symlink as suspect"
+)
 assert "! -type d" in staged and "-type f" not in staged, (
-    "the staged-upload allowlist must cover symlinks, not only regular files"
+    "the file allowlist must not skip non-regular files"
 )
 
 # Version identity and per-ABI output must be read back out of the artifacts.

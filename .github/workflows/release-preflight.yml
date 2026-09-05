@@ -1,0 +1,339 @@
+name: Alpha release preflight
+
+# Builds, signs, and verifies a release candidate without publishing anything.
+#
+# This workflow deliberately has no way to create a release: its token is
+# read-only and it never calls the releases API. It exists so that signing and
+# candidate artifacts can be validated without pushing a tag, because pushing a
+# tag runs the publishing workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_version:
+        description: "Candidate version tag to simulate, e.g. v1.0.0-alpha.4 (no tag is created)"
+        required: true
+        type: string
+      signing_key:
+        description: "Which signing identity to use"
+        required: true
+        default: test-key
+        type: choice
+        options:
+          - test-key
+          - persistent-key
+
+# Read-only: this workflow cannot create a release, upload a release asset, or
+# push a tag. Do not grant it write access to repository contents; the workflow
+# regression checks fail if that ever changes.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Build, sign, and verify candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Gives the repository owner one place to require reviewers before any run
+    # that can read the persistent signing secrets.
+    environment: alpha-signing
+    env:
+      MAX_ARM64_APK_BYTES: "33554432"
+      SIGNING_KEY: ${{ inputs.signing_key }}
+      CANDIDATE_VERSION: ${{ inputs.candidate_version }}
+
+    steps:
+      - name: Check out dispatched revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+
+      - name: Validate candidate version and main ancestry
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$CANDIDATE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
+            echo "Unsupported alpha candidate version: $CANDIDATE_VERSION" >&2
+            exit 1
+          fi
+
+          # Only revisions already contained in main may reach the persistent
+          # signing secrets. This keeps unreviewed branch or fork code away from
+          # the release identity.
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Candidate revision must be contained in origin/main: $GITHUB_SHA" >&2
+            exit 1
+          fi
+
+          version_name="${CANDIDATE_VERSION#v}"
+          version_code="$(git rev-list --count HEAD)"
+          if [[ ! "$version_code" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Unable to derive a positive Android version code: $version_code" >&2
+            exit 1
+          fi
+
+          printf 'VERSION_NAME=%s\n' "$version_name" >> "$GITHUB_ENV"
+          printf 'VERSION_CODE=%s\n' "$version_code" >> "$GITHUB_ENV"
+
+      - name: Validate signing secrets
+        if: ${{ inputs.signing_key == 'persistent-key' }}
+        env:
+          ALPHA_KEYSTORE_BASE64: ${{ secrets.ALPHA_KEYSTORE_BASE64 }}
+          ALPHA_KEYSTORE_PASSWORD: ${{ secrets.ALPHA_KEYSTORE_PASSWORD }}
+          ALPHA_KEY_ALIAS: ${{ secrets.ALPHA_KEY_ALIAS }}
+          ALPHA_KEY_PASSWORD: ${{ secrets.ALPHA_KEY_PASSWORD }}
+          ALPHA_SIGNING_CERT_SHA256: ${{ vars.ALPHA_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in \
+            ALPHA_KEYSTORE_BASE64 \
+            ALPHA_KEYSTORE_PASSWORD \
+            ALPHA_KEY_ALIAS \
+            ALPHA_KEY_PASSWORD
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing $name" >&2
+              missing=1
+            fi
+          done
+          if [[ -z "$ALPHA_SIGNING_CERT_SHA256" ]]; then
+            echo "Missing repository variable ALPHA_SIGNING_CERT_SHA256" >&2
+            echo "Run this workflow once with signing_key=test-key to exercise the" >&2
+            echo "path, then pin the persistent certificate fingerprint before" >&2
+            echo "producing a persistent-key candidate." >&2
+            missing=1
+          fi
+          ((missing == 0))
+
+      - name: Test, lint, and build arm64 candidate
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            verifyBuildscriptBouncyCastle \
+            test \
+            lint \
+            :app:assembleAlpha \
+            -Pthwiply.abi=arm64-v8a \
+            -Pthwiply.versionCode="$VERSION_CODE" \
+            -Pthwiply.versionName="$VERSION_NAME" \
+            --stacktrace \
+            --no-daemon
+
+          source_apk="app/build/outputs/apk/alpha/app-alpha-unsigned.apk"
+          if [[ ! -f "$source_apk" ]]; then
+            echo "Expected arm64 alpha APK not found: $source_apk" >&2
+            exit 1
+          fi
+
+          arm64_unsigned="$RUNNER_TEMP/thwiply-arm64-v8a-unsigned.apk"
+          cp "$source_apk" "$arm64_unsigned"
+          printf 'ARM64_UNSIGNED_PATH=%s\n' "$arm64_unsigned" >> "$GITHUB_ENV"
+
+      - name: Build x86_64 emulator candidate
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            clean \
+            :app:assembleAlpha \
+            -Pthwiply.abi=x86_64 \
+            -Pthwiply.versionCode="$VERSION_CODE" \
+            -Pthwiply.versionName="$VERSION_NAME" \
+            --stacktrace \
+            --no-daemon
+
+          source_apk="app/build/outputs/apk/alpha/app-alpha-unsigned.apk"
+          if [[ ! -f "$source_apk" ]]; then
+            echo "Expected x86_64 alpha APK not found: $source_apk" >&2
+            exit 1
+          fi
+
+          x86_unsigned="$RUNNER_TEMP/thwiply-x86_64-unsigned.apk"
+          cp "$source_apk" "$x86_unsigned"
+          printf 'X86_UNSIGNED_PATH=%s\n' "$x86_unsigned" >> "$GITHUB_ENV"
+
+      - name: Sign and verify candidate APKs
+        env:
+          ALPHA_KEYSTORE_BASE64: ${{ secrets.ALPHA_KEYSTORE_BASE64 }}
+          ALPHA_KEYSTORE_PASSWORD: ${{ secrets.ALPHA_KEYSTORE_PASSWORD }}
+          ALPHA_KEY_ALIAS: ${{ secrets.ALPHA_KEY_ALIAS }}
+          ALPHA_KEY_PASSWORD: ${{ secrets.ALPHA_KEY_PASSWORD }}
+          ALPHA_SIGNING_CERT_SHA256: ${{ vars.ALPHA_SIGNING_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+
+          keystore_path="$RUNNER_TEMP/thwiply-preflight-signing.p12"
+          # The keystore never outlives this step, including on failure and on
+          # the signals the runner uses to cancel a job.
+          trap 'rm -f "$keystore_path"' EXIT INT TERM
+          umask 077
+
+          if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+            printf '%s' "$ALPHA_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+            key_alias="$ALPHA_KEY_ALIAS"
+            export KEYSTORE_PASSWORD="$ALPHA_KEYSTORE_PASSWORD"
+            export KEY_PASSWORD="$ALPHA_KEY_PASSWORD"
+          else
+            # Throwaway identity. This password is deliberately not a secret: it
+            # protects a key that is generated and deleted inside this step and
+            # can never sign a published artifact.
+            key_alias="thwiply-preflight-test-key"
+            export KEYSTORE_PASSWORD="preflight-test-key"
+            export KEY_PASSWORD="preflight-test-key"
+            keytool -genkeypair \
+              -storetype PKCS12 \
+              -keystore "$keystore_path" \
+              -alias "$key_alias" \
+              -keyalg RSA \
+              -keysize 4096 \
+              -validity 30 \
+              -dname "CN=Thwiply Preflight TEST KEY, OU=Release Preflight, O=Thwiply" \
+              -storepass "$KEYSTORE_PASSWORD" \
+              -keypass "$KEY_PASSWORD"
+          fi
+          chmod 600 "$keystore_path"
+
+          build_tools_version="$(
+            find "$ANDROID_HOME/build-tools" \
+              -mindepth 1 \
+              -maxdepth 1 \
+              -type d \
+              -exec basename {} \; |
+              sort -V |
+              tail -n 1
+          )"
+          apksigner="$ANDROID_HOME/build-tools/$build_tools_version/apksigner"
+          if [[ ! -x "$apksigner" ]]; then
+            echo "Android apksigner not found: $apksigner" >&2
+            exit 1
+          fi
+
+          candidate_dir="$RUNNER_TEMP/candidate"
+          mkdir -p "$candidate_dir"
+          if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+            label="$CANDIDATE_VERSION"
+          else
+            label="$CANDIDATE_VERSION-TEST-KEY"
+          fi
+          arm64_signed="$candidate_dir/thwiply-${label}-arm64-v8a.apk"
+          x86_signed="$candidate_dir/thwiply-${label}-x86_64-emulator.apk"
+
+          report="$RUNNER_TEMP/apksigner-report.txt"
+          : > "$report"
+          for artifact in \
+            "$ARM64_UNSIGNED_PATH:$arm64_signed" \
+            "$X86_UNSIGNED_PATH:$x86_signed"
+          do
+            unsigned_path="${artifact%%:*}"
+            signed_path="${artifact#*:}"
+            "$apksigner" sign \
+              --ks "$keystore_path" \
+              --ks-type PKCS12 \
+              --ks-key-alias "$key_alias" \
+              --ks-pass env:KEYSTORE_PASSWORD \
+              --key-pass env:KEY_PASSWORD \
+              --out "$signed_path" \
+              "$unsigned_path"
+            "$apksigner" verify --verbose --print-certs "$signed_path" | tee -a "$report"
+          done
+
+          # Requires one signer certificate across both APKs and, for the
+          # persistent identity, that it is the pinned one.
+          if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+            fingerprint="$(
+              bash scripts/verify-apk-certificate.sh "$report" "$ALPHA_SIGNING_CERT_SHA256"
+            )"
+          else
+            fingerprint="$(bash scripts/verify-apk-certificate.sh "$report")"
+          fi
+
+          bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"
+
+          (
+            cd "$candidate_dir"
+            sha256sum \
+              "$(basename "$arm64_signed")" \
+              "$(basename "$x86_signed")" \
+              > SHA256SUMS
+          )
+
+          printf 'CANDIDATE_DIR=%s\n' "$candidate_dir" >> "$GITHUB_ENV"
+          printf 'CERT_FINGERPRINT=%s\n' "$fingerprint" >> "$GITHUB_ENV"
+
+      - name: Write candidate manifest
+        run: |
+          set -euo pipefail
+
+          if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+            usage="Persistent-key candidate. Upgrades in place from an earlier persistently signed alpha."
+          else
+            usage="TEST-KEY build. Not a release candidate. Uninstall before installing a persistent-key build."
+          fi
+
+          {
+            printf 'Thwiply alpha candidate\n'
+            printf '=======================\n\n'
+            printf 'Repository:          %s\n' "$GITHUB_REPOSITORY"
+            printf 'Source commit:       %s\n' "$GITHUB_SHA"
+            printf 'Candidate version:   %s\n' "$CANDIDATE_VERSION"
+            printf 'Android versionName: %s\n' "$VERSION_NAME"
+            printf 'Android versionCode: %s\n' "$VERSION_CODE"
+            printf 'Signing identity:    %s\n' "$SIGNING_KEY"
+            printf 'Certificate SHA-256: %s\n' "$CERT_FINGERPRINT"
+            printf 'Preflight run:       %s/%s/actions/runs/%s\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf '\n%s\n' "$usage"
+            printf '\nThis preflight did not publish a release and did not create a tag.\n'
+            printf 'Model weights are downloaded after installation; they are not bundled.\n'
+            printf '\nSHA-256 checksums\n-----------------\n'
+            cat "$CANDIDATE_DIR/SHA256SUMS"
+          } > "$CANDIDATE_DIR/CANDIDATE.txt"
+
+          cat "$CANDIDATE_DIR/CANDIDATE.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload candidate artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: thwiply-candidate-${{ inputs.signing_key }}-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: error
+          # Explicit files only. Never widen this to the runner temp directory,
+          # which is where the decoded keystore lives.
+          path: |
+            ${{ env.CANDIDATE_DIR }}/*.apk
+            ${{ env.CANDIDATE_DIR }}/SHA256SUMS
+            ${{ env.CANDIDATE_DIR }}/CANDIDATE.txt
+
+      - name: Confirm no signing material remains
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/thwiply-preflight-signing.p12"
+          remaining="$(
+            find "$RUNNER_TEMP" \
+              \( -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \) \
+              -print
+          )"
+          if [[ -n "$remaining" ]]; then
+            echo "Signing material remains in the runner temp directory:" >&2
+            printf '  %s\n' "$remaining" >&2
+            exit 1
+          fi
+          echo "No signing material remains in the runner temp directory."

@@ -408,8 +408,19 @@ assert triggers(release) == {"push"}, f"release triggers drifted: {triggers(rele
 
 # The candidate path must not be able to publish. A job-level permissions block
 # overrides the top-level one, so neither may widen the token.
-assert re.search(r"^permissions:\n  contents: read\n(?!  )", preflight, re.MULTILINE), (
-    "preflight token must be exactly contents: read"
+def permissions(workflow):
+    block = re.search(r"^permissions:\n((?:  \S.*\n|\n)*)", workflow, re.MULTILINE)[1]
+    return dict(
+        line.split(":", 1)[0].strip() and
+        (line.split(":", 1)[0].strip(), line.split(":", 1)[1].strip())
+        for line in block.splitlines() if line.strip()
+    )
+
+assert permissions(preflight) == {"contents": "read"}, (
+    f"preflight token must be exactly contents: read, got {permissions(preflight)}"
+)
+assert permissions(ci) == {"contents": "read"}, (
+    f"CI token must be exactly contents: read, got {permissions(ci)}"
 )
 for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci)):
     assert "write-all" not in workflow, f"{name}: write-all token"
@@ -441,11 +452,28 @@ assert 'if [[ -n "$remaining" ]]; then' in cleanup and "exit 1" in cleanup, (
     "cleanup check must fail the job when signing material is found"
 )
 
-# ...and the pre-upload check must actually precede the upload.
-step_order = re.findall(r"^      - name: (.+)$", preflight, re.MULTILINE)
-assert step_order.index("Confirm the upload carries no signing material") \
-    < step_order.index("Upload candidate artifacts"), (
+# ...and every gate must actually precede the thing it gates.
+def order(workflow):
+    return re.findall(r"^      - name: (.+)$", workflow, re.MULTILINE)
+
+preflight_order = order(preflight)
+assert preflight_order.index("Confirm the upload carries no signing material") \
+    < preflight_order.index("Upload candidate artifacts"), (
     "the staged-upload check must run before the upload, not after it"
+)
+assert preflight_order.index("Verify packaged version and per-ABI native code") \
+    < preflight_order.index("Upload candidate artifacts"), (
+    "identity must be verified before the candidate is published as an artifact"
+)
+
+release_order = order(release)
+assert release_order.index("Verify packaged version and per-ABI native code") \
+    < release_order.index("Create GitHub prerelease"), (
+    "identity must be verified before the release is created, not after"
+)
+assert release_order.index("Sign and verify alpha APKs") \
+    < release_order.index("Create GitHub prerelease"), (
+    "APKs must be signed and verified before the release is created"
 )
 staged = re.search(
     r"^      - name: Confirm the upload carries no signing material\n(.*?)(?=^      - name:|\Z)",
@@ -456,6 +484,11 @@ for guard in ('if [[ -n "$material" ]]; then', 'if [[ -n "$unexpected" ]]; then'
               'if [[ ! -f "$required" ]]; then'):
     assert guard in staged, f"staged-upload check must fail on: {guard}"
 assert staged.count("exit 1") >= 3, "staged-upload check must fail the job"
+# upload-artifact follows symlinks, so `-type f` would let a symlink named
+# *.apk pointing at the keystore through the allowlist.
+assert "! -type d" in staged and "-type f" not in staged, (
+    "the staged-upload allowlist must cover symlinks, not only regular files"
+)
 
 # Version identity and per-ABI output must be read back out of the artifacts.
 # Both the candidate path and the publishing path must read identity back out

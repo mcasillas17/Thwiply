@@ -58,7 +58,7 @@ fi
 observed_count="$(printf '%s\n' "$observed" | grep -c '^')"
 if [[ "$observed_count" -ne 1 ]]; then
   echo "Expected exactly one signer certificate, found $observed_count:" >&2
-  printf '  %s\n' "$observed" >&2
+  sed 's/^/  /' <<< "$observed" >&2
   exit 1
 fi
 

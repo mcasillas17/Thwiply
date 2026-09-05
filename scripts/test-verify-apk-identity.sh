@@ -49,9 +49,20 @@ expect_failure_containing() {
 # SDK is not available here, so the tool is injected rather than assumed.
 make_aapt2() {
   local path="$fixture_dir/aapt2-$1"
+  # Real aapt2 must read the zip central directory before it can print
+  # anything, so the stub fails the same way on an unreadable archive. Without
+  # this, the stub would happily describe a truncated file and hide ordering
+  # bugs in the script under test. The badging line carries the
+  # platformBuildVersionCode and compileSdkVersionCodename decoys that make the
+  # field extraction non-trivial.
   cat > "$path" <<AAPT
 #!/usr/bin/env bash
-echo "package: name='thwiply.elopenmike.com' versionCode='$2' versionName='$3' platformBuildVersionName='16'"
+apk="\${@: -1}"
+if ! unzip -l "\$apk" > /dev/null 2>&1; then
+  echo "ERROR: failed to open APK: \$apk" >&2
+  exit 1
+fi
+echo "package: name='thwiply.elopenmike.com' versionCode='$2' versionName='$3' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'"
 echo "sdkVersion:'31'"
 echo "application-label:'Thwiply'"
 AAPT
@@ -116,8 +127,40 @@ expect_failure_containing \
   "$verifier" "$good_aapt2" "$nolibs_apk" arm64-v8a 1234 1.0.0-alpha.4
 expect_failure_containing \
   "distinguishes a truncated APK from one lacking libraries" \
-  "cannot read APK archive" \
+  "cannot read APK archive with aapt2" \
   "$verifier" "$good_aapt2" "$truncated_apk" arm64-v8a 1234 1.0.0-alpha.4
+expect_failure_containing \
+  "surfaces aapt2's own error when it cannot read the APK" \
+  "failed to open APK" \
+  "$verifier" "$good_aapt2" "$truncated_apk" arm64-v8a 1234 1.0.0-alpha.4
+expect_failure_containing \
+  "rejects a non-executable aapt2" \
+  "aapt2 is not executable" \
+  "$verifier" "$fixture_dir/no-such-aapt2" "$arm_apk" arm64-v8a 1234 1.0.0-alpha.4
+
+# The decoy fields aapt2 really emits must not be mistaken for the real ones.
+decoy_aapt2="$(make_aapt2 decoy 1234 1.0.0-alpha.4)"
+expect_success \
+  "ignores platformBuildVersionCode and compileSdkVersionCodename" \
+  "$verifier" "$decoy_aapt2" "$arm_apk" arm64-v8a 1234 1.0.0-alpha.4
+
+# Those decoys are only skipped because aapt2 happens to capitalise them. Pin
+# the guard itself with a trailing lower-case suffix field: an unanchored
+# greedy match would take the LAST occurrence and read 9999 / 9.9.9.
+trailing_aapt2="$fixture_dir/aapt2-trailing"
+cat > "$trailing_aapt2" <<'AAPT'
+#!/usr/bin/env bash
+apk="${@: -1}"
+if ! unzip -l "$apk" > /dev/null 2>&1; then
+  echo "ERROR: failed to open APK: $apk" >&2
+  exit 1
+fi
+echo "package: name='thwiply.elopenmike.com' versionCode='1234' versionName='1.0.0-alpha.4' appversionCode='9999' appversionName='9.9.9'"
+AAPT
+chmod +x "$trailing_aapt2"
+expect_success \
+  "reads the real field, not a lower-case suffix look-alike" \
+  "$verifier" "$trailing_aapt2" "$arm_apk" arm64-v8a 1234 1.0.0-alpha.4
 expect_failure_containing \
   "rejects a missing APK" \
   "does not exist" \

@@ -21,14 +21,29 @@ expected_abi="$3"
 expected_code="$4"
 expected_name="$5"
 
+if [[ ! -x "$aapt2" ]]; then
+  echo "aapt2 is not executable: $aapt2" >&2
+  exit 2
+fi
+
 if [[ ! -f "$apk" ]]; then
   echo "APK does not exist: $apk" >&2
   exit 2
 fi
 
-badging="$("$aapt2" dump badging "$apk")"
+# aapt2 has to read the zip central directory before it can print anything, so
+# it is the first thing to fail on a truncated or corrupt APK. Catch that here
+# rather than letting `set -e` abort with only aapt2's own stderr.
+if ! badging="$("$aapt2" dump badging "$apk" 2>&1)"; then
+  echo "$apk: cannot read APK archive with aapt2 (truncated or corrupt?)" >&2
+  sed 's/^/  /' <<< "$badging" >&2
+  exit 1
+fi
+
+# Anchored to the `package:` line, and requiring a non-letter before the field
+# name, so `versionCode` is not also matched inside `platformBuildVersionCode`.
 field() {
-  sed -nE "s/.*$1='([^']*)'.*/\1/p" <<< "$badging" | head -n 1
+  sed -nE "/^package:/{s/.*[^A-Za-z]$1='([^']*)'.*/\1/p;q;}" <<< "$badging"
 }
 
 actual_code="$(field versionCode)"
@@ -44,13 +59,6 @@ if [[ "$actual_name" != "$expected_name" ]]; then
   status=1
 fi
 
-# Distinguish an unreadable archive from one that simply has no lib/ entries,
-# so a truncated APK does not present as "no native libraries".
-if ! unzip -Z1 "$apk" > /dev/null 2>&1; then
-  echo "$apk: cannot read APK archive (truncated or corrupt?)" >&2
-  exit 1
-fi
-
 # The zip entries are the ground truth for which ABI shipped. Directory entries
 # yield an empty field, so drop those before comparing.
 abis="$(
@@ -62,7 +70,7 @@ abis="$(
 
 if [[ "$abis" != "$expected_abi" ]]; then
   echo "$apk: expected only '$expected_abi' native libraries, found:" >&2
-  printf '  %s\n' "${abis:-<none>}" >&2
+  sed 's/^/  /' <<< "${abis:-<none>}" >&2
   if [[ -z "$abis" ]]; then
     echo "  (no lib/<abi>/ entries at all; check the ABI filter and that the" >&2
     echo "   native dependency ships this ABI)" >&2

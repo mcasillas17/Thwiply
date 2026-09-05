@@ -73,6 +73,12 @@ their version code increases.
 
 ## Local dry run
 
+Before tagging, require a completed successful **Android instrumentation** check
+and inspect **Test, lint, and build** for the exact intended `main` commit.
+The strict main ruleset enforces the instrumentation check before merge;
+the tag workflow itself does not start an emulator job. Wait for `main` CI
+after merge rather than relying only on a previous PR revision.
+
 Set the Android SDK and Java locations for the local environment, then build
 each ABI separately because both variants use the same output path:
 
@@ -98,6 +104,12 @@ bash scripts/test-release-workflows.sh
 bash scripts/check-apk-size.sh /tmp/thwiply-arm64.apk 33554432
 ./gradlew verifyBuildscriptBouncyCastle test lint assembleDebug
 ```
+
+Run the full managed-device command and result checker from
+[README's instrumentation setup](../README.md#android-instrumentation) as well.
+The debug Room/migration/backup suite does not exercise signed or minified
+LiteRT-LM inference. Passing PR CI is not a release deployment or the separate
+FND-13 physical-device/minified smoke gate.
 
 Locally sign with a disposable test key and verify with the installed Android
 Build Tools `apksigner`. Never use the persistent alpha private key for ad hoc

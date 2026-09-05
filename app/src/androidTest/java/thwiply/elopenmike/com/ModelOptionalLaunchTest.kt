@@ -14,6 +14,11 @@ class ModelOptionalLaunchTest {
 
     @Test
     fun missingModelAllowsManualTaskSettingsAndRecreation() {
+        // Fail explicitly on a device with installed weights instead of silently
+        // treating initialization/failure as evidence of the missing-model case.
+        compose.onNode(hasText("Lab") and hasClickAction()).performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.lab_missing)).assertIsDisplayed()
+        compose.onNode(hasText("Today") and hasClickAction()).performClick()
         val title = "FND-02 manual ${System.nanoTime()}"
         compose.onNodeWithContentDescription("Add task").performClick()
         compose.onNodeWithText("Task description").performTextInput(title)
@@ -22,6 +27,9 @@ class ModelOptionalLaunchTest {
             compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
         }
         compose.activityRule.scenario.recreate()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText(title).assertIsDisplayed()
         compose.onNode(hasText("Settings") and hasClickAction()).performClick()
         compose.onNodeWithText("Delete notification data and rules")
@@ -29,6 +37,7 @@ class ModelOptionalLaunchTest {
         compose.onNodeWithText("Delete notification data?").assertIsDisplayed()
         compose.onNodeWithText("Cancel").performClick()
         compose.onNode(hasText("Lab") and hasClickAction()).performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.lab_missing)).assertIsDisplayed()
         compose.onNodeWithText("Thwip Test").performScrollTo().assertIsNotEnabled()
     }
 

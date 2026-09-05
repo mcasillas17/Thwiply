@@ -69,7 +69,7 @@ class AppNavigationTest {
         back()
         compose.onNodeWithText("Delete notification data and rules").performScrollTo().assertIsEnabled()
         tab("Today")
-        compose.onNodeWithText("Synthetic manual task").assertIsDisplayed()
+        awaitText("Synthetic manual task").assertIsDisplayed()
     }
 
     @Test fun installedStartupInitializesLabWithoutForcingSetup() {
@@ -140,7 +140,8 @@ class AppNavigationTest {
         compose.onNodeWithText(text(R.string.setup_download)).performScrollTo().performClick()
         compose.runOnIdle { downloads.value = DownloadState.Downloading(35) }
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText(text(R.string.setup_downloading)).performScrollTo().assertIsNotEnabled()
+        compose.onNode(hasText(text(R.string.setup_downloading)) and hasClickAction())
+            .performScrollTo().assertIsNotEnabled()
         back()
         compose.onNode(hasText("Lab") and hasClickAction()).assertIsSelected()
         repeat(3) { openSetup(); back() }
@@ -162,6 +163,10 @@ class AppNavigationTest {
             "installed" -> File(modelDirectory, preset.fileName).writeText("test")
             "truncated" -> File(modelDirectory, preset.fileName).writeText("bad")
             "partial" -> File(modelDirectory, "${preset.fileName}.part").writeText("pa")
+            "removed" -> File(modelDirectory, preset.fileName).apply {
+                writeText("test")
+                check(delete())
+            }
         }
         val models = ModelManager(modelDirectory, OkHttpClient(), listOf(preset))
         database = Room.inMemoryDatabaseBuilder(context, ThwiplyDatabase::class.java).build()

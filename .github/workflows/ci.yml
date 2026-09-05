@@ -41,6 +41,7 @@ jobs:
           bash scripts/test-release-workflows.sh
           bash scripts/test-check-apk-size.sh
           bash scripts/test-verify-apk-certificate.sh
+          bash scripts/test-verify-apk-identity.sh
 
       - name: Run tests, lint, and debug build
         run: |

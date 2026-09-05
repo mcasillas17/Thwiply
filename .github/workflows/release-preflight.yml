@@ -250,10 +250,14 @@ jobs:
           # Never name a candidate the way a published asset is named. A
           # persistent-key preflight produces a real-key, installable APK that is
           # not a release, and a test-key build is not a candidate at all.
-          if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+          if [[ "$SIGNING_KEY" != "persistent-key" ]]; then
+            label="$CANDIDATE_VERSION-TEST-KEY"
+          elif [[ -n "$ALPHA_SIGNING_CERT_SHA256" ]]; then
             label="$CANDIDATE_VERSION-candidate"
           else
-            label="$CANDIDATE_VERSION-TEST-KEY"
+            # Real key, but nothing has confirmed it is the right one yet. Say so
+            # in the filename, not only in the manifest a reader might skip.
+            label="$CANDIDATE_VERSION-candidate-UNVERIFIED"
           fi
           arm64_signed="$candidate_dir/thwiply-${label}-arm64-v8a.apk"
           x86_signed="$candidate_dir/thwiply-${label}-x86_64-emulator.apk"
@@ -305,6 +309,7 @@ jobs:
 
           printf 'BUILD_TOOLS_DIR=%s\n' "$build_tools" >> "$GITHUB_ENV"
           printf 'CANDIDATE_DIR=%s\n' "$candidate_dir" >> "$GITHUB_ENV"
+          printf 'CANDIDATE_LABEL=%s\n' "$label" >> "$GITHUB_ENV"
           printf 'ARM64_SIGNED_PATH=%s\n' "$arm64_signed" >> "$GITHUB_ENV"
           printf 'X86_SIGNED_PATH=%s\n' "$x86_signed" >> "$GITHUB_ENV"
           printf 'CERT_FINGERPRINT=%s\n' "$fingerprint" >> "$GITHUB_ENV"
@@ -314,41 +319,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Read the identity back out of the signed APKs. Passing version
-          # properties to Gradle is an intention; this is the evidence. It also
-          # catches an APK that carries the wrong ABI's native libraries, which
-          # both variants could otherwise do because they share an output path.
-          for entry in \
-            "$ARM64_SIGNED_PATH:arm64-v8a" \
-            "$X86_SIGNED_PATH:x86_64"
-          do
-            apk="${entry%:*}"
-            expected_abi="${entry##*:}"
-
-            badging="$("$BUILD_TOOLS_DIR/aapt2" dump badging "$apk")"
-            actual_code="$(sed -nE "s/.*versionCode='([^']*)'.*/\1/p" <<< "$badging" | head -n 1)"
-            actual_name="$(sed -nE "s/.*versionName='([^']*)'.*/\1/p" <<< "$badging" | head -n 1)"
-
-            if [[ "$actual_code" != "$VERSION_CODE" ]]; then
-              echo "$apk: packaged versionCode $actual_code != $VERSION_CODE" >&2
-              exit 1
-            fi
-            if [[ "$actual_name" != "$VERSION_NAME" ]]; then
-              echo "$apk: packaged versionName $actual_name != $VERSION_NAME" >&2
-              exit 1
-            fi
-
-            # The zip entries are the ground truth for which ABI shipped.
-            abis="$(unzip -Z1 "$apk" 'lib/*' 2>/dev/null | cut -d/ -f2 | sort -u || true)"
-            if [[ "$abis" != "$expected_abi" ]]; then
-              echo "$apk: expected only $expected_abi native libraries, found:" >&2
-              printf '  %s\n' "${abis:-<none>}" >&2
-              exit 1
-            fi
-
-            printf '%s: versionCode=%s versionName=%s abi=%s\n' \
-              "$(basename "$apk")" "$actual_code" "$actual_name" "$abis"
-          done
+          bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \
+            "$ARM64_SIGNED_PATH" arm64-v8a "$VERSION_CODE" "$VERSION_NAME"
+          bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \
+            "$X86_SIGNED_PATH" x86_64 "$VERSION_CODE" "$VERSION_NAME"
 
       - name: Write candidate manifest
         run: |
@@ -418,12 +392,25 @@ jobs:
             fi
           done
 
+          unexpected="$(
+            find "$CANDIDATE_DIR" -type f \
+              ! -name '*.apk' \
+              ! -name SHA256SUMS \
+              ! -name CANDIDATE.txt \
+              -print
+          )"
+          if [[ -n "$unexpected" ]]; then
+            echo "Unexpected files staged for upload:" >&2
+            printf '  %s\n' "$unexpected" >&2
+            exit 1
+          fi
+
           echo "Candidate directory contains only publishable candidate files."
 
       - name: Upload candidate artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: thwiply-candidate-${{ inputs.signing_key }}-${{ github.run_id }}
+          name: thwiply-candidate-${{ env.CANDIDATE_LABEL }}-${{ github.run_id }}
           retention-days: 14
           if-no-files-found: error
           # Explicit files only. Never widen this to the runner temp directory,

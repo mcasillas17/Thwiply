@@ -180,11 +180,14 @@ jobs:
               sort -V |
               tail -n 1
           )"
-          apksigner="$ANDROID_HOME/build-tools/$build_tools_version/apksigner"
-          if [[ ! -x "$apksigner" ]]; then
-            echo "Android apksigner not found: $apksigner" >&2
-            exit 1
-          fi
+          build_tools="$ANDROID_HOME/build-tools/$build_tools_version"
+          for tool in apksigner aapt2; do
+            if [[ ! -x "$build_tools/$tool" ]]; then
+              echo "Android $tool not found: $build_tools/$tool" >&2
+              exit 1
+            fi
+          done
+          apksigner="$build_tools/apksigner"
 
           release_dir="$RUNNER_TEMP/release-assets"
           mkdir -p "$release_dir"
@@ -222,9 +225,19 @@ jobs:
               > "$(basename "$checksum_path")"
           )
 
+          printf 'BUILD_TOOLS_DIR=%s\n' "$build_tools" >> "$GITHUB_ENV"
           printf 'ARM64_SIGNED_PATH=%s\n' "$arm64_signed" >> "$GITHUB_ENV"
           printf 'X86_SIGNED_PATH=%s\n' "$x86_signed" >> "$GITHUB_ENV"
           printf 'CHECKSUM_PATH=%s\n' "$checksum_path" >> "$GITHUB_ENV"
+
+      - name: Verify packaged version and per-ABI native code
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \
+            "$ARM64_SIGNED_PATH" arm64-v8a "$VERSION_CODE" "$VERSION_NAME"
+          bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \
+            "$X86_SIGNED_PATH" x86_64 "$VERSION_CODE" "$VERSION_NAME"
 
       - name: Create GitHub prerelease
         env:

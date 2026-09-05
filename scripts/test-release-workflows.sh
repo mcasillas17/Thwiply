@@ -73,6 +73,8 @@ require_text "CI runs workflow regression checks" "$ci_workflow" \
   "bash scripts/test-release-workflows.sh"
 require_text "CI runs the signing-certificate checks" "$ci_workflow" \
   "bash scripts/test-verify-apk-certificate.sh"
+require_text "CI runs the packaged-identity checks" "$ci_workflow" \
+  "bash scripts/test-verify-apk-identity.sh"
 reject_text "CI cannot ignore failures" "$ci_workflow" "continue-on-error"
 reject_text "CI cannot use privileged PR triggers" "$ci_workflow" "pull_request_target"
 reject_regex "CI cannot use signing secrets" "$ci_workflow" 'secrets[.[]'
@@ -283,8 +285,12 @@ require_text "preflight signs with protected password inputs" "$preflight_workfl
   "--ks-pass env:KEYSTORE_PASSWORD"
 reject_regex "preflight never passes a password on the command line" \
   "$preflight_workflow" '[-][-](ks|key)-pass +pass:'
-reject_regex "signing workflows keep checkout credentials off disk" \
+reject_regex "preflight keeps checkout credentials off disk" \
   "$preflight_workflow" 'persist-credentials: true'
+reject_regex "release keeps checkout credentials off disk" \
+  "$release_workflow" 'persist-credentials: true'
+require_text "release verifies the packaged version and ABI" "$release_workflow" \
+  "Verify packaged version and per-ABI native code"
 
 if python3 - "$release_workflow" "$preflight_workflow" "$ci_workflow" <<'PY'
 import pathlib
@@ -363,9 +369,12 @@ assert 'label="$CANDIDATE_VERSION-TEST-KEY"' in sign, (
 assert 'label="$CANDIDATE_VERSION-candidate"' in sign, (
     "persistent-key preflight artifacts must be marked as candidates"
 )
+assert 'label="$CANDIDATE_VERSION-candidate-UNVERIFIED"' in sign, (
+    "a real-key candidate signed without a pinned certificate must say so"
+)
 upload_name = re.search(r"name: (.+)\n", upload)[1]
-assert "${{ inputs.signing_key }}" in upload_name, (
-    "candidate artifact name must state which signing identity produced it"
+assert "${{ env.CANDIDATE_LABEL }}" in upload_name, (
+    "candidate artifact name must carry the same label as the files inside it"
 )
 
 # The provenance manifest that gets written must be the one that gets uploaded.
@@ -378,7 +387,7 @@ assert f"${{{{ env.CANDIDATE_DIR }}}}/{manifest}" in paths, (
     f"the written manifest {manifest} is not uploaded"
 )
 for field in ("Source commit:", "Android versionCode:", "Certificate SHA-256:",
-              "Signing identity:"):
+              "Certificate status:", "Signing identity:"):
     assert field in manifest_step, f"candidate manifest must record {field}"
 
 # Signing secrets must never reach a workflow that untrusted code can trigger.
@@ -399,7 +408,9 @@ assert triggers(release) == {"push"}, f"release triggers drifted: {triggers(rele
 
 # The candidate path must not be able to publish. A job-level permissions block
 # overrides the top-level one, so neither may widen the token.
-assert "permissions:\n  contents: read" in preflight, "preflight token must be read-only"
+assert re.search(r"^permissions:\n  contents: read\n(?!  )", preflight, re.MULTILINE), (
+    "preflight token must be exactly contents: read"
+)
 for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci)):
     assert "write-all" not in workflow, f"{name}: write-all token"
     assert not re.search(r"^    permissions:", workflow, re.MULTILINE), (
@@ -411,6 +422,9 @@ for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci
 for name, workflow in (("release", release), ("preflight", preflight)):
     checkouts = re.findall(r"uses: actions/checkout@[0-9a-f]{40}\n((?:        .*\n)+)", workflow)
     assert checkouts, f"{name}: no checkout found"
+    assert len(checkouts) == workflow.count("uses: actions/checkout@"), (
+        f"{name}: a checkout step has no options block, so it persists credentials"
+    )
     for block in checkouts:
         assert "persist-credentials: false" in block, (
             f"{name}: checkout must not persist credentials"
@@ -423,6 +437,9 @@ cleanup = re.search(
 )[1]
 assert "if: always()" in cleanup, "cleanup check must run on failed and cancelled runs"
 assert "-name '*.p12'" in cleanup and "$RUNNER_TEMP" in cleanup, "cleanup check gutted"
+assert 'if [[ -n "$remaining" ]]; then' in cleanup and "exit 1" in cleanup, (
+    "cleanup check must fail the job when signing material is found"
+)
 
 # ...and the pre-upload check must actually precede the upload.
 step_order = re.findall(r"^      - name: (.+)$", preflight, re.MULTILINE)
@@ -435,18 +452,25 @@ staged = re.search(
     preflight, re.MULTILINE | re.DOTALL,
 )[1]
 assert "-name '*.p12'" in staged and "$CANDIDATE_DIR" in staged, "staged-upload check gutted"
+for guard in ('if [[ -n "$material" ]]; then', 'if [[ -n "$unexpected" ]]; then',
+              'if [[ ! -f "$required" ]]; then'):
+    assert guard in staged, f"staged-upload check must fail on: {guard}"
+assert staged.count("exit 1") >= 3, "staged-upload check must fail the job"
 
 # Version identity and per-ABI output must be read back out of the artifacts.
-identity = re.search(
-    r"^      - name: Verify packaged version and per-ABI native code\n(.*?)(?=^      - name:|\Z)",
-    preflight, re.MULTILINE | re.DOTALL,
-)[1]
-assert "aapt2" in identity and "versionCode" in identity and "versionName" in identity, (
-    "candidate must prove its packaged version, not just its intended one"
-)
-for abi in ("arm64-v8a", "x86_64"):
-    assert abi in identity, f"per-ABI verification missing {abi}"
-assert 'unzip' in identity and 'lib/' in identity, "per-ABI check must inspect real zip entries"
+# Both the candidate path and the publishing path must read identity back out
+# of the artifact they produced.
+for name, workflow in (("release", release), ("preflight", preflight)):
+    identity = re.search(
+        r"^      - name: Verify packaged version and per-ABI native code\n(.*?)(?=^      - name:|\Z)",
+        workflow, re.MULTILINE | re.DOTALL,
+    )
+    assert identity, f"{name}: no packaged-identity verification"
+    for abi, path in (("arm64-v8a", "$ARM64_SIGNED_PATH"), ("x86_64", "$X86_SIGNED_PATH")):
+        assert (
+            f'bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \\\n'
+            f'            "{path}" {abi} "$VERSION_CODE" "$VERSION_NAME"'
+        ) in identity[1], f"{name}: {abi} identity verification drifted"
 for forbidden in ("gh release", "softprops/action-gh-release", "actions/create-release"):
     assert forbidden not in preflight, f"preflight must not publish: {forbidden}"
 

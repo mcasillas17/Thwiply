@@ -1,7 +1,7 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; foundation hardening and Phase 2 design are ready; notification ingestion is not started
-**Last updated:** 2026-09-03
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Last updated:** 2026-09-05
 
 ## Product direction
 
@@ -38,6 +38,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Explanations, corrections, and rules | Contracts and storage only | Decision explanations, correction rows, and rule rows exist; Today drops the category, and no correction/rule workflow consumes them |
 | Notification-data lifecycle | Phase 1 foundation delivered; hardening open | 30-day expiry, purge on Today entry, and confirmed delete-all exist; purge failure can hide manual data and inactive-app cleanup is not scheduled |
 | Alpha distribution | Workflow delivered; runtime proof open | Signed, minified, per-ABI prereleases, checksums, and a 32 MiB arm64 size gate exist; the minified LiteRT-LM path lacks a recorded device smoke gate |
+| Instrumentation CI | FND-01 complete | A required, separate API 36 managed-emulator job executes Room reopen, migration, and backup tests; assertion-failure propagation and restored success are recorded below |
 | Android quality | Hardening open | Lifecycle-aware collection, target SDK 36 insets, string resources, accessibility semantics/touch targets, and adaptive-layout evidence remain open |
 | Project metadata | Hardening open | Settings hardcodes its version, and README declares MIT while the linked `LICENSE` file is absent |
 
@@ -93,7 +94,7 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. Start `FND-01` through `FND-05`, `FND-07`, `FND-12`, and `FND-14` in
+1. `FND-01` is complete. Start `FND-02` through `FND-05`, `FND-07`, `FND-12`, and `FND-14` in
    parallel where ownership permits.
 2. Complete `FND-06` after its resource prerequisite and complete the model and
    Lab chain `FND-08` through `FND-11`.
@@ -110,7 +111,7 @@ These decisions are prerequisites, not open implementation options:
 
 | ID | Status | Outcome and implementation | Depends on | Completion evidence |
 |---|---|---|---|---|
-| FND-01 | Ready | Run existing Room reopen, migration, backup, and future service instrumentation in CI using a managed emulator job separate from the fast JVM/lint/build job. Preserve logs and make the device job required before merge. | None | `ThwiplyDatabaseTest`, `ThwiplyMigrationTest`, and `BackupConfigurationTest` execute in CI; a deliberately failing instrumentation test fails the job. |
+| FND-01 | Complete | Run existing Room reopen, migration, backup, and future service instrumentation in CI using a managed emulator job separate from the fast JVM/lint/build job. Preserve logs and make the device job required before merge. | None | API 36 Google APIs x86_64 GMD: `ThwiplyDatabaseTest` 8, `ThwiplyMigrationTest` 1, `BackupConfigurationTest` 1, and app-context 1 passed; [restored passing CI](https://github.com/mcasillas17/Thwiply/actions/runs/33952691422). A [deliberate instrumentation assertion](https://github.com/mcasillas17/Thwiply/actions/runs/33952276955/job/101269178705) failed the job and blocked merge; the temporary test was removed in ordinary commit `90090aa`. [Active ruleset](https://github.com/mcasillas17/Thwiply/rules/22323517) requires `Android instrumentation` with no bypass. |
 | FND-02 | Ready | Replace model-gated root navigation with an app shell that always exposes manual Today and Settings. Model setup becomes a resumable feature state, not an entrance requirement. | None | Cold launches with missing, downloading, corrupt, removed, and failed models can create/read manual tasks, open Settings, and start or retry model setup. |
 | FND-03 | Ready | Add lifecycle-aware Compose flow collection and subscription policies. Replace screen-level `collectAsState()` usage, stop off-screen Room observation, and test foreground/background transitions. | None | App flows are collected only while their owners are active; process/background tests show no duplicate observers or lost visible state. |
 | FND-04 | Ready | Implement target SDK 36 edge-to-edge, status/navigation/IME insets, light/dark system-bar appearance, and adaptive phone/tablet/foldable layouts without changing product information architecture. | None | API 31 and 36 device tests cover gesture and three-button navigation, cutouts, IME use, rotation, and representative window sizes without clipped controls. |
@@ -124,6 +125,20 @@ These decisions are prerequisites, not open implementation options:
 | FND-12 | Ready | Centralize notification-data cleanup at app startup, Today entry, and active ingestion boundaries; make purge failure diagnostic but never hide manual rows; add at most one best-effort local cleanup run per day with no network or model work. | None | Expired notification-derived records are purged on the next eligible boundary; periodic work is uniquely scheduled and bounded to one delete transaction per run; injected purge failure still renders manual tasks. |
 | FND-13 | Blocked | Audit packaged consumer rules, add only demonstrated R8/serialization/JNI rules, and run the minified alpha on an emulator and representative arm64 device through launch, model verification, initialization, and one generation. | FND-01, FND-08, FND-09, FND-10, FND-11 | The exact signed/minified variant launches and infers on device; mapping/keep evidence is archived; the arm64 size gate and per-ABI checks remain green. |
 | FND-14 | Ready | Repair release truth and maintenance policy: add the declared MIT license, display `BuildConfig.VERSION_NAME`, document supported toolchain/dependency baselines, remove or justify unused dependencies, and keep security maintenance separate from product phase status. | None | README license link resolves; installed build reports the packaged version; dependency verification and latest `main` CI are green; prerelease toolchain use has an explicit rationale or is replaced with evidence. |
+
+FND-01 evidence was recorded on 2026-09-05: the negative run executed 12 tests
+(11 passed, one deliberate assertion failed), retained reports/logs, and left
+merge blocked. The restored run executed 11 tests with no failures or skips;
+both the device and unchanged fast CI jobs passed. There is no outstanding
+administrator action for the instrumentation requirement. Existing deletion
+and force-push rules were preserved. Reports have 14-day artifact retention;
+the linked run logs identify the test, result, and revision after artifacts
+expire. See [local commands and CI diagram](../README.md#android-instrumentation).
+
+Readiness after FND-01: `FND-13`, `P2-03`, `P2-12`, and `P3-01` remain
+**Blocked** on their other listed prerequisites. No notification service,
+model-lifecycle change, minified inference proof, or other foundation task is
+claimed by this CI work.
 
 ### Phase 2 - consent and bounded notification ingestion
 
@@ -239,8 +254,9 @@ Evidence:
 - `ThwiplyMigrationTest` seeds every v1 table and proves the v2 migration preserves supported values while backfilling notification retention only;
 - `BackupConfigurationTest` verifies `android:allowBackup="false"` plus explicit database exclusions in both cloud-backup and device-transfer rules.
 
-The Android instrumentation evidence above exists in the repository but does
-not run continuously until `FND-01` is complete.
+The Android instrumentation evidence above now runs on every PR to `main` and
+push to `main` in the required `Android instrumentation` job delivered by
+`FND-01`, separately from the fast JVM/lint/build job.
 
 Exit gates:
 

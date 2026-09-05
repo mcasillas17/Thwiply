@@ -71,7 +71,8 @@ require_text "CI does not reuse managed-device caches" "$ci_workflow" \
 require_text "CI fails on missing diagnostic artifacts" "$ci_workflow" \
   "if-no-files-found: error"
 
-if python3 - "$repo_root/scripts/check-instrumentation-results.py" "$ci_workflow" <<'PY'
+if python3 - "$repo_root/scripts/check-instrumentation-results.py" "$ci_workflow" \
+  "$repo_root/app/build.gradle.kts" <<'PY'
 import pathlib
 import re
 import subprocess
@@ -80,12 +81,28 @@ import tempfile
 
 checker = sys.argv[1]
 workflow = pathlib.Path(sys.argv[2]).read_text()
-device_job = workflow.split("\n  instrumentation:\n", 1)[1]
+device_job = re.split(
+    r"^  [\w-]+:\s*$", workflow.split("\n  instrumentation:\n", 1)[1],
+    maxsplit=1, flags=re.MULTILINE,
+)[0]
 assert not re.search(r"^    (needs|if):", device_job, re.MULTILINE), "device job must be independent"
 assert "permissions:\n  contents: read" in workflow, "read-only token required"
 assert "persist-credentials: false" in device_job, "checkout must not persist credentials"
-assert "timeout-minutes: 10" in device_job, "SDK install must be bounded"
-assert "timeout-minutes: 30" in device_job, "device execution must be bounded"
+assert "timeout-minutes: 50" in device_job.split("steps:", 1)[0], "job needs cleanup/upload margin"
+for step, minutes in {
+    "Provision emulator and system image": 10,
+    "Verify SDK and hardware acceleration": 2,
+    "Run full managed-device suite": 30,
+}.items():
+    block = re.search(
+        rf"^      - name: {re.escape(step)}\n(.*?)(?=^      - name:|\Z)",
+        device_job, re.MULTILINE | re.DOTALL,
+    )
+    assert block and f"timeout-minutes: {minutes}\n" in block[1], f"{step}: incorrect timeout"
+device_config = pathlib.Path(sys.argv[3]).read_text()
+for setting in ('create("pixel2api36")', 'device = "Pixel 2"', "sdkVersion = 36",
+                'systemImageSource = "google"', "require64Bit = true"):
+    assert setting in device_config, f"managed-device DSL drift: {setting}"
 assert device_job.index('--install "emulator"') < device_job.index('emulator" -version')
 assert all(
     re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", action)

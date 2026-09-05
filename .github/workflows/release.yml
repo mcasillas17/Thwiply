@@ -95,8 +95,10 @@ jobs:
           # keystore from silently publishing a release testers cannot upgrade.
           if [[ -z "$ALPHA_SIGNING_CERT_SHA256" ]]; then
             echo "Missing repository variable ALPHA_SIGNING_CERT_SHA256" >&2
-            echo "Record the persistent certificate fingerprint with the Alpha" >&2
-            echo "release preflight workflow before publishing a tag." >&2
+            echo "Read the expected fingerprint from the offline keystore with" >&2
+            echo "'keytool -list -v -keystore <keystore>.p12 -storetype PKCS12'," >&2
+            echo "confirm it against a report-only run of the Alpha release" >&2
+            echo "preflight workflow, then set the variable." >&2
             missing=1
           fi
 
@@ -163,7 +165,8 @@ jobs:
 
           keystore_path="$RUNNER_TEMP/thwiply-alpha-signing.p12"
           # Also clean up on the signals the runner uses to cancel a job.
-          trap 'rm -f "$keystore_path"' EXIT INT TERM
+          trap 'rm -f "$keystore_path"' EXIT
+          trap 'rm -f "$keystore_path"; exit 143' INT TERM
           umask 077
           printf '%s' "$ALPHA_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           chmod 600 "$keystore_path"

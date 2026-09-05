@@ -22,6 +22,19 @@ require_text() {
   fi
 }
 
+reject_regex() {
+  local name="$1"
+  local file="$2"
+  local pattern="$3"
+  if grep -Eq -- "$pattern" "$file"; then
+    printf "FAIL: %s (matched '%s')\n" "$name" "$pattern" >&2
+    failed=$((failed + 1))
+  else
+    printf 'PASS: %s\n' "$name"
+    passed=$((passed + 1))
+  fi
+}
+
 reject_text() {
   local name="$1"
   local file="$2"
@@ -62,7 +75,7 @@ require_text "CI runs the signing-certificate checks" "$ci_workflow" \
   "bash scripts/test-verify-apk-certificate.sh"
 reject_text "CI cannot ignore failures" "$ci_workflow" "continue-on-error"
 reject_text "CI cannot use privileged PR triggers" "$ci_workflow" "pull_request_target"
-reject_text "CI cannot use signing secrets" "$ci_workflow" 'secrets.'
+reject_regex "CI cannot use signing secrets" "$ci_workflow" 'secrets[.[]'
 require_text "CI provisions the emulator explicitly" "$ci_workflow" \
   '--install "emulator" "platform-tools"'
 require_text "CI installs the emulator host library" "$ci_workflow" \
@@ -185,8 +198,8 @@ require_text "release verifies APK signatures" "$release_workflow" \
   "verify --verbose --print-certs"
 require_text "release publishes checksums" "$release_workflow" \
   "SHA256SUMS"
-require_text "release enforces the APK size budget" "$release_workflow" \
-  "scripts/check-apk-size.sh"
+require_text "release enforces the APK size budget on arm64" "$release_workflow" \
+  'bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"'
 require_text "release pins the ephemeral-signing cutoff" "$release_workflow" \
   "v1.0.0-alpha.3 or earlier"
 reject_text "release does not claim every prior alpha used ephemeral signing" "$release_workflow" \
@@ -206,8 +219,10 @@ require_text "release requires the pinned fingerprint variable" "$release_workfl
   "vars.ALPHA_SIGNING_CERT_SHA256"
 require_text "release runs in the protected signing environment" "$release_workflow" \
   "environment: alpha-signing"
-require_text "release removes the keystore on cancellation too" "$release_workflow" \
-  "trap 'rm -f \"\$keystore_path\"' EXIT INT TERM"
+require_text "release removes the keystore on exit" "$release_workflow" \
+  "trap 'rm -f \"\$keystore_path\"' EXIT"
+require_text "release aborts and cleans up on cancellation" "$release_workflow" \
+  "trap 'rm -f \"\$keystore_path\"; exit 143' INT TERM"
 reject_text "release never uploads build artifacts" "$release_workflow" \
   "upload-artifact"
 reject_text "release cannot ignore failures" "$release_workflow" "continue-on-error"
@@ -241,8 +256,8 @@ require_text "preflight uses the 32 MiB arm64 budget" "$preflight_workflow" \
   'MAX_ARM64_APK_BYTES: "33554432"'
 reject_text "preflight rejects the obsolete 80 MiB budget" "$preflight_workflow" \
   "83886080"
-require_text "preflight enforces the APK size budget" "$preflight_workflow" \
-  "scripts/check-apk-size.sh"
+require_text "preflight enforces the APK size budget on arm64" "$preflight_workflow" \
+  'bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"'
 require_text "preflight verifies APK signatures" "$preflight_workflow" \
   "verify --verbose --print-certs"
 require_text "preflight pins the persistent certificate identity" \
@@ -254,10 +269,22 @@ require_text "preflight records candidate provenance" "$preflight_workflow" \
   "CANDIDATE.txt"
 require_text "preflight labels test-key builds" "$preflight_workflow" \
   "TEST-KEY"
-require_text "preflight removes the keystore on cancellation too" \
-  "$preflight_workflow" "trap 'rm -f \"\$keystore_path\"' EXIT INT TERM"
+require_text "preflight removes the keystore on exit" \
+  "$preflight_workflow" "trap 'rm -f \"\$keystore_path\"' EXIT"
+require_text "preflight aborts and cleans up on cancellation" \
+  "$preflight_workflow" "trap 'rm -f \"\$keystore_path\"; exit 143' INT TERM"
 require_text "preflight proves no signing material survives" "$preflight_workflow" \
   "Confirm no signing material remains"
+require_text "preflight checks the upload before it happens" "$preflight_workflow" \
+  "Confirm the upload carries no signing material"
+require_text "preflight verifies the packaged version and ABI" "$preflight_workflow" \
+  "Verify packaged version and per-ABI native code"
+require_text "preflight signs with protected password inputs" "$preflight_workflow" \
+  "--ks-pass env:KEYSTORE_PASSWORD"
+reject_regex "preflight never passes a password on the command line" \
+  "$preflight_workflow" '[-][-](ks|key)-pass +pass:'
+reject_regex "signing workflows keep checkout credentials off disk" \
+  "$preflight_workflow" 'persist-credentials: true'
 
 if python3 - "$release_workflow" "$preflight_workflow" "$ci_workflow" <<'PY'
 import pathlib
@@ -284,6 +311,7 @@ for line in (entry.strip() for entry in paths.strip().splitlines()):
     assert line.startswith("${{ env.CANDIDATE_DIR }}/"), f"unexpected upload path: {line}"
     assert not line.endswith(("/*", "/**")), f"upload path too broad: {line}"
     assert not re.search(r"\.(p12|jks|keystore)$", line), f"signing material upload: {line}"
+    assert ".." not in line, f"upload path escapes the candidate directory: {line}"
 
 # The keystore must be written outside whatever directory gets uploaded.
 sign = re.search(
@@ -330,6 +358,11 @@ assert "missing=1" in validate and "((missing == 0))" in validate, (
 assert 'label="$CANDIDATE_VERSION-TEST-KEY"' in sign, (
     "test-key artifacts must carry a distinct filename label"
 )
+# A real-key preflight artifact is installable and publicly downloadable but is
+# not a release; it must never be named the way a published asset is named.
+assert 'label="$CANDIDATE_VERSION-candidate"' in sign, (
+    "persistent-key preflight artifacts must be marked as candidates"
+)
 upload_name = re.search(r"name: (.+)\n", upload)[1]
 assert "${{ inputs.signing_key }}" in upload_name, (
     "candidate artifact name must state which signing identity produced it"
@@ -349,12 +382,71 @@ for field in ("Source commit:", "Android versionCode:", "Certificate SHA-256:",
     assert field in manifest_step, f"candidate manifest must record {field}"
 
 # Signing secrets must never reach a workflow that untrusted code can trigger.
-assert "secrets." not in ci, "CI must not read signing secrets"
-for trigger in ("pull_request", "pull_request_target", "schedule"):
-    assert f"\n  {trigger}:" not in preflight, f"preflight must not use {trigger}"
+# `secrets['NAME']` reads the same secret as `secrets.NAME`, so match both.
+assert not re.search(r"secrets[.\[]", ci), "CI must not read signing secrets"
 
-# The candidate path must not be able to publish.
+# Allowlist the triggers rather than denylisting names: `workflow_call` would
+# let any other workflow, including a pull_request_target one, invoke the
+# signing job with `secrets: inherit`.
+def triggers(workflow):
+    block = re.search(r"^on:\n((?:  \S.*\n|    .*\n|\n)*)", workflow, re.MULTILINE)[1]
+    return set(re.findall(r"^  ([a-z_]+):", block, re.MULTILINE))
+
+assert triggers(preflight) == {"workflow_dispatch"}, (
+    f"preflight triggers must be exactly workflow_dispatch, got {triggers(preflight)}"
+)
+assert triggers(release) == {"push"}, f"release triggers drifted: {triggers(release)}"
+
+# The candidate path must not be able to publish. A job-level permissions block
+# overrides the top-level one, so neither may widen the token.
 assert "permissions:\n  contents: read" in preflight, "preflight token must be read-only"
+for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci)):
+    assert "write-all" not in workflow, f"{name}: write-all token"
+    assert not re.search(r"^    permissions:", workflow, re.MULTILINE), (
+        f"{name}: job-level permissions override the workflow token"
+    )
+
+# A checkout that persists credentials leaves the job token in .git/config,
+# in the same job as the decoded keystore.
+for name, workflow in (("release", release), ("preflight", preflight)):
+    checkouts = re.findall(r"uses: actions/checkout@[0-9a-f]{40}\n((?:        .*\n)+)", workflow)
+    assert checkouts, f"{name}: no checkout found"
+    for block in checkouts:
+        assert "persist-credentials: false" in block, (
+            f"{name}: checkout must not persist credentials"
+        )
+
+# The runtime leak check must actually run, and must run on failure paths.
+cleanup = re.search(
+    r"^      - name: Confirm no signing material remains\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+assert "if: always()" in cleanup, "cleanup check must run on failed and cancelled runs"
+assert "-name '*.p12'" in cleanup and "$RUNNER_TEMP" in cleanup, "cleanup check gutted"
+
+# ...and the pre-upload check must actually precede the upload.
+step_order = re.findall(r"^      - name: (.+)$", preflight, re.MULTILINE)
+assert step_order.index("Confirm the upload carries no signing material") \
+    < step_order.index("Upload candidate artifacts"), (
+    "the staged-upload check must run before the upload, not after it"
+)
+staged = re.search(
+    r"^      - name: Confirm the upload carries no signing material\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+assert "-name '*.p12'" in staged and "$CANDIDATE_DIR" in staged, "staged-upload check gutted"
+
+# Version identity and per-ABI output must be read back out of the artifacts.
+identity = re.search(
+    r"^      - name: Verify packaged version and per-ABI native code\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+assert "aapt2" in identity and "versionCode" in identity and "versionName" in identity, (
+    "candidate must prove its packaged version, not just its intended one"
+)
+for abi in ("arm64-v8a", "x86_64"):
+    assert abi in identity, f"per-ABI verification missing {abi}"
+assert 'unzip' in identity and 'lib/' in identity, "per-ABI check must inspect real zip entries"
 for forbidden in ("gh release", "softprops/action-gh-release", "actions/create-release"):
     assert forbidden not in preflight, f"preflight must not publish: {forbidden}"
 

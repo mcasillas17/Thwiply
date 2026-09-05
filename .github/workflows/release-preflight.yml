@@ -37,8 +37,11 @@ jobs:
     name: Build, sign, and verify candidate
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    # Gives the repository owner one place to require reviewers before any run
-    # that can read the persistent signing secrets.
+    # This is the ONLY control that decides who may reach the persistent signing
+    # secrets. A freshly referenced environment is created with no protection
+    # rules, so it protects nothing until the repository owner configures
+    # required reviewers and restricts its deployment branches and tags. Do not
+    # provision the signing secrets before that is done; see docs/RELEASING.md.
     environment: alpha-signing
     env:
       MAX_ARM64_APK_BYTES: "33554432"
@@ -70,9 +73,12 @@ jobs:
             exit 1
           fi
 
-          # Only revisions already contained in main may reach the persistent
-          # signing secrets. This keeps unreviewed branch or fork code away from
-          # the release identity.
+          # A sanity check that the dispatched revision is the intended one, so a
+          # candidate always corresponds to reviewed history. This is NOT an
+          # authorization boundary: workflow_dispatch runs the workflow file from
+          # the selected ref, so anyone who can push a branch could also remove
+          # this check. Only the alpha-signing environment's required reviewers
+          # and deployment-branch rules actually restrict who reaches the secrets.
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "Candidate revision must be contained in origin/main: $GITHUB_SHA" >&2
@@ -112,14 +118,22 @@ jobs:
               missing=1
             fi
           done
-          if [[ -z "$ALPHA_SIGNING_CERT_SHA256" ]]; then
-            echo "Missing repository variable ALPHA_SIGNING_CERT_SHA256" >&2
-            echo "Run this workflow once with signing_key=test-key to exercise the" >&2
-            echo "path, then pin the persistent certificate fingerprint before" >&2
-            echo "producing a persistent-key candidate." >&2
-            missing=1
-          fi
           ((missing == 0))
+
+          # Unlike the publishing workflow, an unset pin is allowed here and only
+          # downgrades the run to report-only. The pin cannot be discovered from a
+          # test-key run, and requiring it here would make it impossible to reach
+          # a persistent-key candidate at all. Read the expected value from the
+          # offline keystore instead:
+          #   keytool -list -v -keystore <keystore>.p12 -storetype PKCS12 -alias <alias>
+          # and compare it to the fingerprint this run reports before pinning it.
+          if [[ -z "$ALPHA_SIGNING_CERT_SHA256" ]]; then
+            echo "::warning::ALPHA_SIGNING_CERT_SHA256 is not set. This run will" \
+              "report the observed signing certificate instead of verifying it." \
+              "Confirm the reported fingerprint against the offline keystore with" \
+              "'keytool -list -v', then set the variable. Publishing a tag stays" \
+              "blocked until it is pinned."
+          fi
 
       - name: Test, lint, and build arm64 candidate
         run: |
@@ -171,10 +185,12 @@ jobs:
 
       - name: Sign and verify candidate APKs
         env:
-          ALPHA_KEYSTORE_BASE64: ${{ secrets.ALPHA_KEYSTORE_BASE64 }}
-          ALPHA_KEYSTORE_PASSWORD: ${{ secrets.ALPHA_KEYSTORE_PASSWORD }}
-          ALPHA_KEY_ALIAS: ${{ secrets.ALPHA_KEY_ALIAS }}
-          ALPHA_KEY_PASSWORD: ${{ secrets.ALPHA_KEY_PASSWORD }}
+          # Bound only for the identity actually in use, so a test-key run never
+          # carries the persistent keystore in its process environment.
+          ALPHA_KEYSTORE_BASE64: ${{ inputs.signing_key == 'persistent-key' && secrets.ALPHA_KEYSTORE_BASE64 || '' }}
+          ALPHA_KEYSTORE_PASSWORD: ${{ inputs.signing_key == 'persistent-key' && secrets.ALPHA_KEYSTORE_PASSWORD || '' }}
+          ALPHA_KEY_ALIAS: ${{ inputs.signing_key == 'persistent-key' && secrets.ALPHA_KEY_ALIAS || '' }}
+          ALPHA_KEY_PASSWORD: ${{ inputs.signing_key == 'persistent-key' && secrets.ALPHA_KEY_PASSWORD || '' }}
           ALPHA_SIGNING_CERT_SHA256: ${{ vars.ALPHA_SIGNING_CERT_SHA256 }}
         run: |
           set -euo pipefail
@@ -182,7 +198,8 @@ jobs:
           keystore_path="$RUNNER_TEMP/thwiply-preflight-signing.p12"
           # The keystore never outlives this step, including on failure and on
           # the signals the runner uses to cancel a job.
-          trap 'rm -f "$keystore_path"' EXIT INT TERM
+          trap 'rm -f "$keystore_path"' EXIT
+          trap 'rm -f "$keystore_path"; exit 143' INT TERM
           umask 077
 
           if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
@@ -219,16 +236,22 @@ jobs:
               sort -V |
               tail -n 1
           )"
-          apksigner="$ANDROID_HOME/build-tools/$build_tools_version/apksigner"
-          if [[ ! -x "$apksigner" ]]; then
-            echo "Android apksigner not found: $apksigner" >&2
-            exit 1
-          fi
+          build_tools="$ANDROID_HOME/build-tools/$build_tools_version"
+          for tool in apksigner aapt2; do
+            if [[ ! -x "$build_tools/$tool" ]]; then
+              echo "Android $tool not found: $build_tools/$tool" >&2
+              exit 1
+            fi
+          done
+          apksigner="$build_tools/apksigner"
 
           candidate_dir="$RUNNER_TEMP/candidate"
           mkdir -p "$candidate_dir"
+          # Never name a candidate the way a published asset is named. A
+          # persistent-key preflight produces a real-key, installable APK that is
+          # not a release, and a test-key build is not a candidate at all.
           if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
-            label="$CANDIDATE_VERSION"
+            label="$CANDIDATE_VERSION-candidate"
           else
             label="$CANDIDATE_VERSION-TEST-KEY"
           fi
@@ -254,14 +277,20 @@ jobs:
             "$apksigner" verify --verbose --print-certs "$signed_path" | tee -a "$report"
           done
 
-          # Requires one signer certificate across both APKs and, for the
-          # persistent identity, that it is the pinned one.
-          if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+          # Requires one signer certificate across both APKs and, when a pin is
+          # configured, that it is the pinned one.
+          if [[ "$SIGNING_KEY" == "persistent-key" && -n "$ALPHA_SIGNING_CERT_SHA256" ]]; then
             fingerprint="$(
               bash scripts/verify-apk-certificate.sh "$report" "$ALPHA_SIGNING_CERT_SHA256"
             )"
+            pin_status="pinned and verified"
           else
             fingerprint="$(bash scripts/verify-apk-certificate.sh "$report")"
+            if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
+              pin_status="REPORT-ONLY - not pinned; confirm against the offline keystore"
+            else
+              pin_status="not applicable - throwaway test key"
+            fi
           fi
 
           bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"
@@ -274,15 +303,59 @@ jobs:
               > SHA256SUMS
           )
 
+          printf 'BUILD_TOOLS_DIR=%s\n' "$build_tools" >> "$GITHUB_ENV"
           printf 'CANDIDATE_DIR=%s\n' "$candidate_dir" >> "$GITHUB_ENV"
+          printf 'ARM64_SIGNED_PATH=%s\n' "$arm64_signed" >> "$GITHUB_ENV"
+          printf 'X86_SIGNED_PATH=%s\n' "$x86_signed" >> "$GITHUB_ENV"
           printf 'CERT_FINGERPRINT=%s\n' "$fingerprint" >> "$GITHUB_ENV"
+          printf 'PIN_STATUS=%s\n' "$pin_status" >> "$GITHUB_ENV"
+
+      - name: Verify packaged version and per-ABI native code
+        run: |
+          set -euo pipefail
+
+          # Read the identity back out of the signed APKs. Passing version
+          # properties to Gradle is an intention; this is the evidence. It also
+          # catches an APK that carries the wrong ABI's native libraries, which
+          # both variants could otherwise do because they share an output path.
+          for entry in \
+            "$ARM64_SIGNED_PATH:arm64-v8a" \
+            "$X86_SIGNED_PATH:x86_64"
+          do
+            apk="${entry%:*}"
+            expected_abi="${entry##*:}"
+
+            badging="$("$BUILD_TOOLS_DIR/aapt2" dump badging "$apk")"
+            actual_code="$(sed -nE "s/.*versionCode='([^']*)'.*/\1/p" <<< "$badging" | head -n 1)"
+            actual_name="$(sed -nE "s/.*versionName='([^']*)'.*/\1/p" <<< "$badging" | head -n 1)"
+
+            if [[ "$actual_code" != "$VERSION_CODE" ]]; then
+              echo "$apk: packaged versionCode $actual_code != $VERSION_CODE" >&2
+              exit 1
+            fi
+            if [[ "$actual_name" != "$VERSION_NAME" ]]; then
+              echo "$apk: packaged versionName $actual_name != $VERSION_NAME" >&2
+              exit 1
+            fi
+
+            # The zip entries are the ground truth for which ABI shipped.
+            abis="$(unzip -Z1 "$apk" 'lib/*' 2>/dev/null | cut -d/ -f2 | sort -u || true)"
+            if [[ "$abis" != "$expected_abi" ]]; then
+              echo "$apk: expected only $expected_abi native libraries, found:" >&2
+              printf '  %s\n' "${abis:-<none>}" >&2
+              exit 1
+            fi
+
+            printf '%s: versionCode=%s versionName=%s abi=%s\n' \
+              "$(basename "$apk")" "$actual_code" "$actual_name" "$abis"
+          done
 
       - name: Write candidate manifest
         run: |
           set -euo pipefail
 
           if [[ "$SIGNING_KEY" == "persistent-key" ]]; then
-            usage="Persistent-key candidate. Upgrades in place from an earlier persistently signed alpha."
+            usage="Persistent-key candidate. Not a release. Upgrades in place from an earlier persistently signed alpha."
           else
             usage="TEST-KEY build. Not a release candidate. Uninstall before installing a persistent-key build."
           fi
@@ -297,16 +370,55 @@ jobs:
             printf 'Android versionCode: %s\n' "$VERSION_CODE"
             printf 'Signing identity:    %s\n' "$SIGNING_KEY"
             printf 'Certificate SHA-256: %s\n' "$CERT_FINGERPRINT"
+            printf 'Certificate status:  %s\n' "$PIN_STATUS"
             printf 'Preflight run:       %s/%s/actions/runs/%s\n' \
               "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
             printf '\n%s\n' "$usage"
             printf '\nThis preflight did not publish a release and did not create a tag.\n'
+            printf 'It did attach these files to a workflow run in a public repository,\n'
+            printf 'so treat them as downloadable by anyone until they are deleted.\n'
             printf 'Model weights are downloaded after installation; they are not bundled.\n'
+            printf '\nDevice evidence gathered from these files describes commit\n'
+            printf '%s and nothing else. Tag that exact commit, not a moving branch:\n' "$GITHUB_SHA"
+            printf '  git push origin %s:refs/tags/%s\n' "$GITHUB_SHA" "$CANDIDATE_VERSION"
             printf '\nSHA-256 checksums\n-----------------\n'
             cat "$CANDIDATE_DIR/SHA256SUMS"
           } > "$CANDIDATE_DIR/CANDIDATE.txt"
 
           cat "$CANDIDATE_DIR/CANDIDATE.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Confirm the upload carries no signing material
+        run: |
+          set -euo pipefail
+
+          # Runs BEFORE the upload: a post-hoc check would only detect a leak
+          # after the artifact had already left the runner.
+          material="$(
+            find "$CANDIDATE_DIR" \
+              \( -name '*.p12' -o -name '*.jks' -o -name '*.keystore' -o -name '*.pem' \) \
+              -print
+          )"
+          if [[ -n "$material" ]]; then
+            echo "Signing material staged for upload:" >&2
+            printf '  %s\n' "$material" >&2
+            exit 1
+          fi
+
+          # `if-no-files-found: error` only fires when NO pattern matches, so
+          # check each expected file rather than relying on the upload action.
+          for required in \
+            "$ARM64_SIGNED_PATH" \
+            "$X86_SIGNED_PATH" \
+            "$CANDIDATE_DIR/SHA256SUMS" \
+            "$CANDIDATE_DIR/CANDIDATE.txt"
+          do
+            if [[ ! -f "$required" ]]; then
+              echo "Missing candidate file: $required" >&2
+              exit 1
+            fi
+          done
+
+          echo "Candidate directory contains only publishable candidate files."
 
       - name: Upload candidate artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -325,7 +437,6 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          rm -f "$RUNNER_TEMP/thwiply-preflight-signing.p12"
           remaining="$(
             find "$RUNNER_TEMP" \
               \( -name '*.p12' -o -name '*.jks' -o -name '*.keystore' \) \

@@ -45,6 +45,77 @@ require_text "CI uses the 32 MiB arm64 budget" "$ci_workflow" \
 reject_text "CI rejects the obsolete 80 MiB budget" "$ci_workflow" \
   "83886080"
 
+require_text "CI has a stable instrumentation check" "$ci_workflow" \
+  "name: Android instrumentation"
+require_text "CI runs managed instrumentation, not just assembly" "$ci_workflow" \
+  ":app:pixel2api36DebugAndroidTest"
+require_text "CI forces fresh instrumentation" "$ci_workflow" \
+  "--rerun-tasks --no-build-cache"
+require_text "CI checks actual instrumentation results" "$ci_workflow" \
+  "python3 scripts/check-instrumentation-results.py"
+require_text "CI retains failure diagnostics" "$ci_workflow" \
+  "if: always()"
+require_text "CI runs workflow regression checks" "$ci_workflow" \
+  "bash scripts/test-release-workflows.sh"
+reject_text "CI cannot ignore failures" "$ci_workflow" "continue-on-error"
+reject_text "CI cannot use privileged PR triggers" "$ci_workflow" "pull_request_target"
+reject_text "CI cannot use signing secrets" "$ci_workflow" 'secrets.'
+
+if python3 - "$repo_root/scripts/check-instrumentation-results.py" <<'PY'
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+checker = sys.argv[1]
+classes = [
+    "thwiply.elopenmike.com.BackupConfigurationTest",
+    "thwiply.elopenmike.com.data.local.ThwiplyDatabaseTest",
+    "thwiply.elopenmike.com.data.local.ThwiplyMigrationTest",
+]
+
+def report(names=classes, child="", attributes=""):
+    cases = "".join(
+        f'<testcase classname="{name}" name="test">{child}</testcase>'
+        for name in names
+    )
+    return f'<testsuite tests="{len(names)}" {attributes}>{cases}</testsuite>'
+
+fixtures = [
+    ("all required classes", report(), True),
+    ("missing reports", None, False),
+    ("empty suite", report([]), False),
+    ("missing class", report(classes[:2]), False),
+    ("skipped tests", report(child="<skipped/>"), False),
+    ("assertion failure", report(child="<failure/>"), False),
+    ("test error", report(child="<error/>"), False),
+    ("suite failure", report(attributes='failures="1"'), False),
+    ("suite skips", report(attributes='skipped="1"'), False),
+    ("suite errors", report(attributes='errors="1"'), False),
+    ("inconsistent count", report().replace('tests="3"', 'tests="4"'), False),
+    ("duplicate tests", report(classes + classes), False),
+    ("unrelated failing test", report()[:-12] +
+     '<testcase classname="FutureServiceTest" name="test"><failure/></testcase>'
+     '</testsuite>', False),
+    ("malformed XML", "<testsuite", False),
+]
+for name, xml, expected in fixtures:
+    with tempfile.TemporaryDirectory() as directory:
+        if xml is not None:
+            pathlib.Path(directory, "TEST-fixture.xml").write_text(xml)
+        result = subprocess.run(
+            [sys.executable, checker, directory], capture_output=True, text=True
+        )
+        if (result.returncode == 0) != expected:
+            sys.exit(f"FAIL: {name}: {result.stdout}{result.stderr}")
+        print(f"PASS: instrumentation results: {name}")
+PY
+then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+fi
+
 require_text "release validates alpha tags" "$release_workflow" \
   "alpha tag"
 require_text "release validates main ancestry" "$release_workflow" \

@@ -119,8 +119,9 @@ read may take time to unwind before another attempt can start. Downloads are
 not scheduled to run in the background. Downloaded files must pass exact-size
 and SHA-256 checks before activation.
 
-The **Lab** tab is always reachable. It shows missing-model, initialization,
-and failure states, and enables inference only when a model is available and
+The **Lab** tab is always reachable. It distinguishes a missing model, an engine
+that needs initialization, initialization in progress, and failure. It enables
+inference only when a model is available and
 the local engine is ready for that model. Opening Lab initializes an installed
 model; failed initialization offers **Retry initialization** and **Model
 setup**. Today and Settings remain usable while initialization runs.
@@ -137,7 +138,7 @@ flowchart TD
     setup -->|Retry or resume download| setup
     lab --> ready{"Model available and engine ready?"}
     ready -->|Yes| inference["Local inference enabled"]
-    ready -->|No| gated["Inference disabled: missing, initializing, or failed"]
+    ready -->|No| gated["Inference disabled: missing, needs initialization, initializing, or failed"]
     gated -->|Retry initialization when needed| lab
 ```
 

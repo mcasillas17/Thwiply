@@ -16,6 +16,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.res.stringResource
+import thwiply.elopenmike.com.R
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -28,9 +30,15 @@ import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaygroundScreen(
+    onModelSetup: () -> Unit,
     viewModel: PlaygroundViewModel = hiltViewModel()
 ) {
-    val isInit by viewModel.isInitializing.collectAsState()
+    val readiness by viewModel.readiness.collectAsState()
+    val model by viewModel.activeModel.collectAsState()
+    val generationFailure by viewModel.generationFailure.collectAsState()
+    LaunchedEffect(viewModel, model) { viewModel.prepareEngine() }
+    val isInit = readiness == LabReadiness.Initializing
+    val isReady = readiness == LabReadiness.Ready
     val isGenerating by viewModel.isGenerating.collectAsState()
     val output by viewModel.output.collectAsState()
     val metrics by viewModel.metrics.collectAsState()
@@ -97,6 +105,10 @@ fun PlaygroundScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            LabReadinessCard(readiness, onModelSetup, viewModel::prepareEngine)
+            generationFailure?.let {
+                Text(stringResource(R.string.lab_generation_failed), color = MaterialTheme.colorScheme.error)
+            }
             // Preset Chips Row
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
@@ -140,7 +152,7 @@ fun PlaygroundScreen(
                             .fillMaxWidth()
                             .heightIn(min = 90.dp),
                         shape = RoundedCornerShape(14.dp),
-                        enabled = !isGenerating && !isInit
+                        enabled = !isGenerating && isReady
                     )
 
                     // Mode Toggle & Actions Row
@@ -167,7 +179,7 @@ fun PlaygroundScreen(
 
                         Button(
                             onClick = { viewModel.generate(prompt, isJsonMode) },
-                            enabled = !isGenerating && !isInit && prompt.isNotBlank(),
+                            enabled = !isGenerating && isReady && prompt.isNotBlank(),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary,
@@ -282,14 +294,14 @@ fun PlaygroundScreen(
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                                 Text(
-                                    text = "Initializing LiteRT on-device engine...",
+                                    text = stringResource(R.string.lab_initializing),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         } else if (output.isBlank() && !isGenerating) {
                             Text(
-                                text = "Model ready. Tap 'Thwip Test' to run inference locally on your device.",
+                                text = stringResource(if (isReady) R.string.lab_ready else R.string.lab_output_unavailable),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -324,5 +336,38 @@ private fun MetricItem(label: String, value: String) {
             fontWeight = FontWeight.Black,
             color = MaterialTheme.colorScheme.primary
         )
+    }
+}
+
+@Composable
+fun LabReadinessCard(
+    readiness: LabReadiness,
+    onModelSetup: () -> Unit,
+    onRetry: () -> Unit,
+) {
+    if (readiness == LabReadiness.Ready) return
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(when (readiness) {
+                LabReadiness.Missing -> R.string.lab_missing
+                LabReadiness.NeedsInitialization -> R.string.lab_needs_initialization
+                LabReadiness.Initializing -> R.string.lab_initializing
+                is LabReadiness.Failed -> R.string.lab_initialization_failed
+                LabReadiness.Ready -> R.string.lab_ready
+            }))
+            if (readiness == LabReadiness.Initializing) {
+                CircularProgressIndicator(Modifier.size(24.dp))
+            } else {
+                if (readiness == LabReadiness.NeedsInitialization || readiness is LabReadiness.Failed) {
+                    Button(onClick = onRetry) { Text(stringResource(R.string.lab_retry)) }
+                }
+                OutlinedButton(onClick = onModelSetup) { Text(stringResource(R.string.setup_open)) }
+            }
+            Text(stringResource(R.string.lab_manual_available), style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

@@ -1,5 +1,7 @@
 package thwiply.elopenmike.com.ui.onboarding
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
@@ -15,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -45,17 +48,24 @@ import kotlin.math.sin
 
 @Composable
 fun OnboardingScreen(
-    onDownloadComplete: () -> Unit,
+    onExit: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val selectedPreset by viewModel.selectedPreset.collectAsState()
 
-    LaunchedEffect(state) {
-        if (state is DownloadState.Success) {
-            onDownloadComplete()
-        }
-    }
+    OnboardingContent(state, selectedPreset, viewModel::selectPreset, viewModel::startDownload, onExit)
+}
+
+@Composable
+fun OnboardingContent(
+    state: DownloadState,
+    selectedPreset: ModelPreset,
+    onSelectPreset: (ModelPreset) -> Unit,
+    onStartDownload: () -> Unit,
+    onExit: () -> Unit,
+) {
+    BackHandler(onBack = onExit)
 
     val isDownloading = state is DownloadState.Downloading
 
@@ -69,6 +79,10 @@ fun OnboardingScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                IconButton(onClick = onExit) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.setup_back))
+                }
                 Box(
                     modifier = Modifier
                         .size(10.dp)
@@ -95,6 +109,10 @@ fun OnboardingScreen(
         ) {
             // Hero Banner Section
             HeroBanner()
+            Text(
+                stringResource(R.string.setup_optional_description),
+                style = MaterialTheme.typography.bodyMedium,
+            )
 
             // Value Proposition Pills
             ValuePropsRow()
@@ -114,7 +132,7 @@ fun OnboardingScreen(
                     isSelected = selectedPreset.id == ModelPreset.QWEN_2_5_1_5B.id,
                     badgeColor = MaterialTheme.colorScheme.primary,
                     badgeTextColor = MaterialTheme.colorScheme.onPrimary,
-                    onClick = { if (!isDownloading) viewModel.selectPreset(ModelPreset.QWEN_2_5_1_5B) }
+                    onClick = { if (!isDownloading) onSelectPreset(ModelPreset.QWEN_2_5_1_5B) }
                 ) {
                     Text(
                         text = ModelPreset.QWEN_2_5_1_5B.description,
@@ -133,7 +151,7 @@ fun OnboardingScreen(
 
             // Primary Call to Action Button
             Button(
-                onClick = { viewModel.startDownload() },
+                onClick = { if (state is DownloadState.Success) onExit() else onStartDownload() },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
@@ -158,7 +176,7 @@ fun OnboardingScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Downloading AI Engine...",
+                        text = stringResource(R.string.setup_downloading),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -173,7 +191,11 @@ fun OnboardingScreen(
                             modifier = Modifier.size(20.dp)
                         )
                         Text(
-                            text = if (state is DownloadState.Error) "Retry Download" else "Get Started (Download AI)",
+                            text = stringResource(when (state) {
+                                is DownloadState.Error -> R.string.setup_retry
+                                DownloadState.Success -> R.string.setup_return
+                                else -> R.string.setup_download
+                            }),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -404,7 +426,7 @@ private fun DownloadStatusCard(state: DownloadState) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Downloading AI Engine...",
+                            text = stringResource(R.string.setup_downloading),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -433,7 +455,7 @@ private fun DownloadStatusCard(state: DownloadState) {
                     ) {
                         Icon(
                             imageVector = Icons.Default.Warning,
-                            contentDescription = "Error",
+                            contentDescription = stringResource(R.string.setup_error),
                             tint = MaterialTheme.colorScheme.error
                         )
                         Text(
@@ -450,11 +472,11 @@ private fun DownloadStatusCard(state: DownloadState) {
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Success",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Model download complete! Initializing LiteRT engine...",
+                            text = stringResource(R.string.setup_complete),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer

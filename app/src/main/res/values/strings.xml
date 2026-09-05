@@ -1,3 +1,26 @@
 <resources>
     <string name="app_name">Thwiply</string>
+    <string name="tab_today">Today</string>
+    <string name="tab_lab">Lab</string>
+    <string name="tab_settings">Settings</string>
+    <string name="setup_open">Model setup</string>
+    <string name="setup_back">Return to app</string>
+    <string name="setup_optional_description">Model setup is optional. Today tasks and Settings work without it. Use Back to return to the app at any time. Interrupted downloads keep partial data for a later resume, when supported by the server. Downloads are not scheduled to run in the background.</string>
+    <string name="setup_download">Download or resume model</string>
+    <string name="setup_retry">Retry download</string>
+    <string name="setup_downloading">Downloading and verifying model…</string>
+    <string name="setup_return">Return to app</string>
+    <string name="setup_complete">Model installed. Open Lab to initialize local inference.</string>
+    <string name="setup_error">Model setup failed</string>
+    <string name="settings_model_installed">Installed • %1$s</string>
+    <string name="settings_setup_needed">Setup needed</string>
+    <string name="lab_missing">No model available for Lab</string>
+    <string name="lab_needs_initialization">The local engine needs initialization.</string>
+    <string name="lab_initializing">Initializing the local engine…</string>
+    <string name="lab_initialization_failed">The local engine could not initialize. Retry initialization or open model setup.</string>
+    <string name="lab_retry">Retry initialization</string>
+    <string name="lab_generation_failed">Generation failed. You can retry your prompt.</string>
+    <string name="lab_output_unavailable">Inference is unavailable until a model is installed and the local engine is ready.</string>
+    <string name="lab_ready">Model ready. Tap Thwip Test to run inference on this device.</string>
+    <string name="lab_manual_available">Today tasks and Settings remain available.</string>
 </resources>

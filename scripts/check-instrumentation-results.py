@@ -15,7 +15,7 @@ REQUIRED_CLASSES = {
 }
 
 
-def verify_results(directory):
+def verify_results(directory: Path) -> Counter[str]:
     reports = sorted(directory.rglob("TEST-*.xml"))
     if not reports:
         raise ValueError(f"No instrumentation XML reports in {directory}")
@@ -24,24 +24,26 @@ def verify_results(directory):
     seen = set()
     for report in reports:
         root = ET.parse(report).getroot()
+        if root.tag not in ("testsuite", "testsuites"):
+            raise ValueError(f"Unexpected report root in {report}: {root.tag}")
         suites = list(root.iter("testsuite"))
         if not suites:
             raise ValueError(f"No test suites in {report}")
-        for suite in suites:
+        for suite in [node for node in root.iter() if node.tag in ("testsuite", "testsuites")]:
             for outcome in ("failures", "errors", "skipped"):
                 if int(suite.get(outcome, "0")) != 0:
                     raise ValueError(f"{report}: suite has {outcome}")
-            cases = list(suite.findall("testcase"))
+            cases = list(suite.iter("testcase"))
             if int(suite.get("tests", "-1")) != len(cases):
                 raise ValueError(f"{report}: inconsistent test count")
-            for case in cases:
-                identity = (case.get("classname"), case.get("name"))
-                if not all(identity) or identity in seen:
-                    raise ValueError(f"{report}: missing or duplicate test identity {identity}")
-                seen.add(identity)
-                if any(case.find(outcome) is not None for outcome in ("failure", "error", "skipped")):
-                    raise ValueError(f"{report}: unsuccessful test {identity}")
-                counts[identity[0]] += 1
+        for case in root.iter("testcase"):
+            identity = (case.get("classname"), case.get("name"))
+            if not all(identity) or identity in seen:
+                raise ValueError(f"{report}: missing or duplicate test identity {identity}")
+            seen.add(identity)
+            if any(case.find(outcome) is not None for outcome in ("failure", "error", "skipped")):
+                raise ValueError(f"{report}: unsuccessful test {identity}")
+            counts[identity[0]] += 1
 
     missing = REQUIRED_CLASSES - counts.keys()
     if missing:

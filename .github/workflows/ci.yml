@@ -70,7 +70,7 @@ jobs:
   instrumentation:
     name: Android instrumentation
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 50
 
     steps:
       - name: Check out repository
@@ -89,14 +89,29 @@ jobs:
         with:
           cache-disabled: true
 
+      - name: Provision emulator and system image
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/instrumentation"
+          {
+            sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            "$sdkmanager" --licenses <<< "$(printf 'y\n%.0s' {1..100})"
+            "$sdkmanager" --install "emulator" "platform-tools" \
+              "system-images;android-36;google_apis;x86_64"
+            "$sdkmanager" --list_installed
+          } 2>&1 | tee "$RUNNER_TEMP/instrumentation/sdk-setup.log"
+
       - name: Verify SDK and hardware acceleration
         timeout-minutes: 2
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/instrumentation"
-          test -c /dev/kvm
-          sudo chmod a+rw /dev/kvm
           {
+            if [[ ! -c /dev/kvm ]]; then
+              echo "Required KVM device /dev/kvm is missing" >&2
+              exit 1
+            fi
+            sudo chmod a+rw /dev/kvm
             java -version
             "$ANDROID_HOME/emulator/emulator" -version
             "$ANDROID_HOME/emulator/emulator" -accel-check
@@ -120,11 +135,11 @@ jobs:
           set -euo pipefail
           python3 scripts/check-instrumentation-results.py \
             app/build/outputs/androidTest-results/managedDevice/debug/pixel2api36 \
-            | tee "$RUNNER_TEMP/instrumentation/test-counts.txt" >> "$GITHUB_STEP_SUMMARY"
+            2>&1 | tee "$RUNNER_TEMP/instrumentation/test-counts.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain instrumentation reports and diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: instrumentation-${{ github.run_id }}-${{ github.run_attempt }}
           retention-days: 14

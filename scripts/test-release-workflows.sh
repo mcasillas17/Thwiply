@@ -60,26 +60,52 @@ require_text "CI runs workflow regression checks" "$ci_workflow" \
 reject_text "CI cannot ignore failures" "$ci_workflow" "continue-on-error"
 reject_text "CI cannot use privileged PR triggers" "$ci_workflow" "pull_request_target"
 reject_text "CI cannot use signing secrets" "$ci_workflow" 'secrets.'
+require_text "CI provisions the emulator explicitly" "$ci_workflow" \
+  '--install "emulator" "platform-tools"'
+require_text "CI provisions the matching system image" "$ci_workflow" \
+  '"system-images;android-36;google_apis;x86_64"'
+require_text "CI does not reuse managed-device caches" "$ci_workflow" \
+  "cache-disabled: true"
+require_text "CI fails on missing diagnostic artifacts" "$ci_workflow" \
+  "if-no-files-found: error"
 
-if python3 - "$repo_root/scripts/check-instrumentation-results.py" <<'PY'
+if python3 - "$repo_root/scripts/check-instrumentation-results.py" "$ci_workflow" <<'PY'
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
 
 checker = sys.argv[1]
+workflow = pathlib.Path(sys.argv[2]).read_text()
+device_job = workflow.split("\n  instrumentation:\n", 1)[1]
+assert not re.search(r"^    (needs|if):", device_job, re.MULTILINE), "device job must be independent"
+assert "permissions:\n  contents: read" in workflow, "read-only token required"
+assert "persist-credentials: false" in device_job, "checkout must not persist credentials"
+assert "timeout-minutes: 10" in device_job, "SDK install must be bounded"
+assert "timeout-minutes: 30" in device_job, "device execution must be bounded"
+assert device_job.index('--install "emulator"') < device_job.index('emulator" -version')
+assert all(
+    re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", action)
+    for action in re.findall(r"uses: (\S+)", workflow)
+), "all actions must be SHA pinned"
 classes = [
     "thwiply.elopenmike.com.BackupConfigurationTest",
     "thwiply.elopenmike.com.data.local.ThwiplyDatabaseTest",
     "thwiply.elopenmike.com.data.local.ThwiplyMigrationTest",
 ]
 
-def report(names=classes, child="", attributes=""):
+def report(names=classes, child="", attributes="", extra_cases=""):
     cases = "".join(
         f'<testcase classname="{name}" name="test">{child}</testcase>'
         for name in names
     )
-    return f'<testsuite tests="{len(names)}" {attributes}>{cases}</testsuite>'
+    total = len(names) + bool(extra_cases)
+    return f'<testsuite tests="{total}" {attributes}>{cases}{extra_cases}</testsuite>'
+
+def aggregate(attributes='tests="3"'):
+    suites = "".join(report([name]) for name in classes)
+    return f'<testsuites {attributes}>{suites}</testsuites>'
 
 fixtures = [
     ("all required classes", report(), True),
@@ -94,9 +120,14 @@ fixtures = [
     ("suite errors", report(attributes='errors="1"'), False),
     ("inconsistent count", report().replace('tests="3"', 'tests="4"'), False),
     ("duplicate tests", report(classes + classes), False),
-    ("unrelated failing test", report()[:-12] +
-     '<testcase classname="FutureServiceTest" name="test"><failure/></testcase>'
-     '</testsuite>', False),
+    ("unrelated failing test", report(extra_cases=
+     '<testcase classname="FutureServiceTest" name="test"><failure/></testcase>'), False),
+    ("real multi-suite shape", aggregate(), True),
+    ("aggregate failures", aggregate('tests="3" failures="1"'), False),
+    ("aggregate errors", aggregate('tests="3" errors="1"'), False),
+    ("aggregate skips", aggregate('tests="3" skipped="1"'), False),
+    ("aggregate count mismatch", aggregate('tests="4"'), False),
+    ("missing test identity", report().replace('name="test"', 'name=""'), False),
     ("malformed XML", "<testsuite", False),
 ]
 for name, xml, expected in fixtures:

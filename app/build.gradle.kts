@@ -74,6 +74,19 @@ android {
     sourceSets {
         getByName("androidTest").assets.directories.add("schemas")
     }
+    testOptions {
+        animationsDisabled = true
+        managedDevices {
+            localDevices {
+                create("pixel2api36") {
+                    device = "Pixel 2"
+                    sdkVersion = 36
+                    systemImageSource = "google"
+                    require64Bit = true
+                }
+            }
+        }
+    }
 }
 
 room {

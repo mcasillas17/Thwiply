@@ -19,6 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.annotation.StringRes
+import thwiply.elopenmike.com.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import thwiply.elopenmike.com.ui.playground.PlaygroundScreen
@@ -27,17 +30,28 @@ import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 import thwiply.elopenmike.com.ui.today.TodayScreen
 
 enum class MainTab(
-    val title: String,
+    @StringRes val title: Int,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector
 ) {
-    TODAY("Today", Icons.Filled.CheckCircle, Icons.Outlined.CheckCircle),
-    LAB("Lab", Icons.Filled.Bolt, Icons.Outlined.Bolt),
-    SETTINGS("Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
+    TODAY(R.string.tab_today, Icons.Filled.CheckCircle, Icons.Outlined.CheckCircle),
+    LAB(R.string.tab_lab, Icons.Filled.Bolt, Icons.Outlined.Bolt),
+    SETTINGS(R.string.tab_settings, Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 @Composable
-fun MainAppScreen() {
+fun MainAppScreen(onModelSetup: () -> Unit) {
+    MainAppContent { tab ->
+        when (tab) {
+            MainTab.TODAY -> TodayScreen()
+            MainTab.LAB -> PlaygroundScreen(onModelSetup = onModelSetup)
+            MainTab.SETTINGS -> SettingsScreen(onModelSetup = onModelSetup)
+        }
+    }
+}
+
+@Composable
+fun MainAppContent(content: @Composable (MainTab) -> Unit) {
     var selectedTab by rememberSaveable { mutableStateOf(MainTab.TODAY) }
 
     Scaffold(
@@ -54,13 +68,13 @@ fun MainAppScreen() {
                         icon = {
                             Icon(
                                 imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = tab.title,
+                                contentDescription = null,
                                 modifier = Modifier.size(24.dp)
                             )
                         },
                         label = {
                             Text(
-                                text = tab.title,
+                                text = stringResource(tab.title),
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                         },
@@ -83,11 +97,7 @@ fun MainAppScreen() {
                 .padding(innerPadding),
             label = "mainScreenTabs"
         ) { tab ->
-            when (tab) {
-                MainTab.TODAY -> TodayScreen()
-                MainTab.LAB -> PlaygroundScreen()
-                MainTab.SETTINGS -> SettingsScreen()
-            }
+            content(tab)
         }
     }
 }

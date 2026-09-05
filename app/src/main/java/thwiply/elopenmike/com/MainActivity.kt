@@ -9,13 +9,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.hilt.navigation.compose.hiltViewModel
 import dagger.hilt.android.AndroidEntryPoint
-import thwiply.elopenmike.com.llm.model.ModelManager
+import thwiply.elopenmike.com.ui.main.AppNavigation
 import thwiply.elopenmike.com.ui.main.MainAppScreen
 import thwiply.elopenmike.com.ui.onboarding.OnboardingScreen
+import thwiply.elopenmike.com.ui.onboarding.OnboardingViewModel
 import thwiply.elopenmike.com.ui.theme.ThemeManager
 import thwiply.elopenmike.com.ui.theme.ThwiplyTheme
 import javax.inject.Inject
@@ -25,9 +24,6 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var themeManager: ThemeManager
-
-    @Inject
-    lateinit var modelManager: ModelManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,23 +35,21 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val navController = rememberNavController()
-                    val startDest = if (modelManager.isModelAvailable()) "main" else "onboarding"
-
-                    NavHost(navController = navController, startDestination = startDest) {
-                        composable("onboarding") {
+                    AppNavigation(
+                        mainScreen = { openSetup -> MainAppScreen(onModelSetup = openSetup) },
+                        setupScreen = { returnToShell ->
+                            // Create model setup only when requested. Its activity owner
+                            // survives rotation and repeated visits without overlapping writers.
+                            val setupViewModel: OnboardingViewModel = hiltViewModel(this@MainActivity)
                             OnboardingScreen(
-                                onDownloadComplete = {
-                                    navController.navigate("main") {
-                                        popUpTo("onboarding") { inclusive = true }
-                                    }
-                                }
+                                onExit = {
+                                    setupViewModel.pauseDownload()
+                                    returnToShell()
+                                },
+                                viewModel = setupViewModel,
                             )
-                        }
-                        composable("main") {
-                            MainAppScreen()
-                        }
-                    }
+                        },
+                    )
                 }
             }
         }

@@ -14,6 +14,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import thwiply.elopenmike.com.R
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,6 +27,7 @@ import thwiply.elopenmike.com.ui.theme.ThemeMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    onModelSetup: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
     notificationDataViewModel: NotificationDataSettingsViewModel = hiltViewModel(),
 ) {
@@ -124,7 +127,7 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = activeModel?.name ?: "No verified model installed",
+                                text = activeModel?.name ?: stringResource(R.string.lab_missing),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (activeModel != null) {
                                     MaterialTheme.colorScheme.primary
@@ -140,7 +143,8 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Text(
-                                text = activeModel?.let { "Ready • ${it.size}" } ?: "Setup needed",
+                                text = activeModel?.let { stringResource(R.string.settings_model_installed, it.size) }
+                                    ?: stringResource(R.string.settings_setup_needed),
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -149,6 +153,9 @@ fun SettingsScreen(
                         }
                     }
 
+                    OutlinedButton(onClick = onModelSetup) {
+                        Text(stringResource(R.string.setup_open))
+                    }
                     Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                     Text(
                         text = "LiteRT-LM runs inference locally. Internet access is used to download the pinned model file.",

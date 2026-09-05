@@ -313,14 +313,17 @@ shasum -a 256 -c SHA256SUMS
 To check only the APK a tester downloaded, filter first:
 
 ```bash
+# Linux
 grep 'arm64-v8a\.apk$' SHA256SUMS | sha256sum -c -
+# macOS
+grep 'arm64-v8a\.apk$' SHA256SUMS | shasum -a 256 -c -
 ```
 
 ### When a preflight fails
 
 | Failure | Meaning and recovery |
 | --- | --- |
-| `Expected fingerprint must be a SHA-256 hex digest` | `ALPHA_SIGNING_CERT_SHA256` still carries the `SHA256:` label or colons from `keytool`. Re-read step 3; the pin must be 64 bare hex characters. |
+| `Expected fingerprint must be a SHA-256 hex digest` | `ALPHA_SIGNING_CERT_SHA256` still carries the `SHA256:` label, or is not exactly 64 hex characters. Colons are stripped automatically and are not the cause. Re-read step 3. |
 | `Candidate revision must be contained in origin/main` | The preflight was dispatched on a ref whose tip is not in `main`. Merge first. |
 | `Missing ALPHA_KEYSTORE_BASE64` (or another secret) | The secret is absent, or the run did not reach the `alpha-signing` environment. Re-check step 4 of provisioning. |
 | `Signing certificate does not match the pinned identity` | The keystore in the secrets is not the one that was pinned. Do not edit the pin to match the key. Establish which is correct first; a genuinely rotated key means every install must be uninstalled and reinstalled. |
@@ -368,13 +371,17 @@ git ls-remote origin refs/tags/v1.0.0-alpha.4
 
 The push has already started `Release optimized alpha APKs` by this point, so
 this confirms the tag rather than gating it. What holds the run is the
-`alpha-signing` environment's required reviewer: the run pauses at the signing
-job and waits. Open the run, use **Review deployments**, check that the commit
-shown matches `CANDIDATE.txt`, and approve only then. If it does not match,
-reject the deployment and delete the tag with
-`git push origin :refs/tags/v1.0.0-alpha.4` before anything is signed.
+`alpha-signing` environment's required reviewer. The workflow has a single job
+and the environment sits on it, so the entire run waits before that job starts:
+no checkout, no build, no signing happens until it is approved, and there is no
+build output to inspect yet when the request arrives.
 
-Once approved, the workflow It then re-validates tag syntax
+Open the run, use **Review deployments**, check that the commit shown matches
+the source commit in `CANDIDATE.txt`, and approve only then. If it does not
+match, reject the deployment and delete the tag with
+`git push origin :refs/tags/v1.0.0-alpha.4`; nothing has been signed.
+
+Once approved, the workflow re-validates tag syntax
 and `main` ancestry, runs tests and lint, builds both ABIs, signs them, verifies
 the certificate against the pin, confirms the packaged version and per-ABI
 native code, enforces the arm64 size budget, generates checksums, and creates
@@ -393,13 +400,13 @@ prerelease carrying only some of its files. If the run failed at that step,
 check before assuming nothing shipped:
 
 ```bash
-gh release view v1.0.0-alpha.4 --repo <owner>/<repo>
+gh release view v1.0.0-alpha.4
 ```
 
 If a release exists, delete it and the tag before retrying:
 
 ```bash
-gh release delete v1.0.0-alpha.4 --repo <owner>/<repo> --cleanup-tag
+gh release delete v1.0.0-alpha.4 --cleanup-tag
 ```
 
 Do not reuse a version number whose assets testers may already have downloaded

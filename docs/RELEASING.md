@@ -217,7 +217,8 @@ flowchart TD
     J -- "yes" --> L["Owner pushes the tag<br/>for that exact commit"]
 ```
 
-Dispatch it against a commit already on `main`:
+Obtain explicit approval before dispatching either signing mode; never approve
+the protected environment on the owner's behalf. Dispatch against `main`:
 
 ```bash
 gh workflow run "Alpha release preflight" \
@@ -287,6 +288,20 @@ Hand device testers the artifact. Never hand over the keystore, the passwords,
 or any secret value - none of them are needed to install or test an APK.
 Artifacts are retained for 14 days, so gather device evidence before then or
 re-run the preflight.
+
+The same run also retains `thwiply-r8-<candidate-label>-<run_id>` separately:
+per-ABI `configuration.txt`, `mapping.txt`, `seeds.txt` and `usage.txt`, captured
+before another ABI's `clean` removes them. Its `CANDIDATE.txt` and
+`APK-SHA256SUMS` bind those diagnostics to the candidate, and its own
+`SHA256SUMS` covers the diagnostic files. The exact-path upload excludes signing
+material; it has the same 14-day retention and public-repository visibility.
+Missing or symlinked shrinker reports fail the preflight rather than silently
+losing the mapping needed to diagnose minified failures.
+
+Follow the [minified alpha smoke runbook](ALPHA_SMOKE.md) for artifact retrieval,
+reused verifier commands, safe device installation, real-model scenarios and
+the evidence report. It distinguishes preliminary test-key results from final
+pinned-candidate results and does not authorize publication or complete FND-13.
 
 The filename states what a build is, so it cannot be mistaken by name alone:
 

@@ -160,6 +160,20 @@ jobs:
           cp "$source_apk" "$arm64_unsigned"
           printf 'ARM64_UNSIGNED_PATH=%s\n' "$arm64_unsigned" >> "$GITHUB_ENV"
 
+      - name: Retain arm64-v8a R8 evidence
+        run: |
+          set -euo pipefail
+          # The next ABI's clean removes these reports.
+          mkdir -p "$RUNNER_TEMP/alpha-r8/arm64-v8a"
+          for report in configuration.txt mapping.txt seeds.txt usage.txt; do
+            source="app/build/outputs/mapping/alpha/$report"
+            if [[ ! -f "$source" || -L "$source" ]]; then
+              echo "Missing or symlinked R8 report: $source" >&2
+              exit 1
+            fi
+            cp "$source" "$RUNNER_TEMP/alpha-r8/arm64-v8a/$report"
+          done
+
       - name: Build x86_64 emulator candidate
         run: |
           set -euo pipefail
@@ -182,6 +196,19 @@ jobs:
           x86_unsigned="$RUNNER_TEMP/thwiply-x86_64-unsigned.apk"
           cp "$source_apk" "$x86_unsigned"
           printf 'X86_UNSIGNED_PATH=%s\n' "$x86_unsigned" >> "$GITHUB_ENV"
+
+      - name: Retain x86_64 R8 evidence
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/alpha-r8/x86_64"
+          for report in configuration.txt mapping.txt seeds.txt usage.txt; do
+            source="app/build/outputs/mapping/alpha/$report"
+            if [[ ! -f "$source" || -L "$source" ]]; then
+              echo "Missing or symlinked R8 report: $source" >&2
+              exit 1
+            fi
+            cp "$source" "$RUNNER_TEMP/alpha-r8/x86_64/$report"
+          done
 
       - name: Sign and verify candidate APKs
         env:
@@ -408,6 +435,16 @@ jobs:
 
           echo "Candidate directory contains only publishable candidate files."
 
+      - name: Bind R8 evidence to candidate
+        run: |
+          set -euo pipefail
+          cp "$CANDIDATE_DIR/CANDIDATE.txt" "$RUNNER_TEMP/alpha-r8/CANDIDATE.txt"
+          cp "$CANDIDATE_DIR/SHA256SUMS" "$RUNNER_TEMP/alpha-r8/APK-SHA256SUMS"
+          cd "$RUNNER_TEMP/alpha-r8"
+          sha256sum CANDIDATE.txt APK-SHA256SUMS \
+            arm64-v8a/{configuration,mapping,seeds,usage}.txt \
+            x86_64/{configuration,mapping,seeds,usage}.txt > SHA256SUMS
+
       - name: Upload candidate artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -420,6 +457,25 @@ jobs:
             ${{ env.CANDIDATE_DIR }}/*.apk
             ${{ env.CANDIDATE_DIR }}/SHA256SUMS
             ${{ env.CANDIDATE_DIR }}/CANDIDATE.txt
+
+      - name: Upload candidate R8 evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: thwiply-r8-${{ env.CANDIDATE_LABEL }}-${{ github.run_id }}
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/alpha-r8/CANDIDATE.txt
+            ${{ runner.temp }}/alpha-r8/APK-SHA256SUMS
+            ${{ runner.temp }}/alpha-r8/SHA256SUMS
+            ${{ runner.temp }}/alpha-r8/arm64-v8a/configuration.txt
+            ${{ runner.temp }}/alpha-r8/arm64-v8a/mapping.txt
+            ${{ runner.temp }}/alpha-r8/arm64-v8a/seeds.txt
+            ${{ runner.temp }}/alpha-r8/arm64-v8a/usage.txt
+            ${{ runner.temp }}/alpha-r8/x86_64/configuration.txt
+            ${{ runner.temp }}/alpha-r8/x86_64/mapping.txt
+            ${{ runner.temp }}/alpha-r8/x86_64/seeds.txt
+            ${{ runner.temp }}/alpha-r8/x86_64/usage.txt
 
       - name: Confirm no signing material remains
         if: always()

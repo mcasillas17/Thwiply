@@ -3,7 +3,12 @@ package thwiply.elopenmike.com.llm.model
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +27,7 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
+import thwiply.elopenmike.com.di.ApplicationScope
 
 sealed class DownloadState {
     data object Idle : DownloadState()
@@ -30,33 +36,67 @@ sealed class DownloadState {
     data class Error(val message: String) : DownloadState()
 }
 
+sealed interface ModelLoadState {
+    data object Loading : ModelLoadState
+    data object Loaded : ModelLoadState
+    data class Failed(val cause: Exception) : ModelLoadState
+}
+
 @Singleton
 class ModelManager internal constructor(
     private val modelsDir: File,
     private val okHttpClient: OkHttpClient,
-    private val presets: List<ModelPreset>
+    private val presets: List<ModelPreset>,
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     @Inject
     constructor(
         @ApplicationContext context: Context,
-        okHttpClient: OkHttpClient
+        okHttpClient: OkHttpClient,
+        @ApplicationScope scope: CoroutineScope,
     ) : this(
         modelsDir = File(context.noBackupFilesDir, MODELS_DIRECTORY),
         okHttpClient = okHttpClient,
-        presets = ModelPreset.PRESETS
+        presets = ModelPreset.PRESETS,
+        scope = scope,
     )
 
     private val activeModelFile = File(modelsDir, ACTIVE_MODEL_FILE)
-    private val _activeModel = MutableStateFlow(readActiveModel())
+    private val _activeModel = MutableStateFlow<ModelPreset?>(null)
     val activeModel: StateFlow<ModelPreset?> = _activeModel.asStateFlow()
+    private val _loadState = MutableStateFlow<ModelLoadState>(ModelLoadState.Loading)
+    val loadState = _loadState.asStateFlow()
+    private val initialRead = scope.launch(dispatcher) { loadActiveModel() }
+
+    suspend fun awaitLoaded() = initialRead.join()
+
+    suspend fun refreshInstalledModel() {
+        awaitLoaded()
+        withContext(dispatcher) { loadActiveModel() }
+    }
+
+    private fun loadActiveModel() {
+        _loadState.value = ModelLoadState.Loading
+        try {
+            _activeModel.value = readActiveModel()
+            _loadState.value = ModelLoadState.Loaded
+        } catch (error: IOException) {
+            _loadState.value = ModelLoadState.Failed(error)
+        } catch (error: SecurityException) {
+            _loadState.value = ModelLoadState.Failed(error)
+        }
+    }
 
     val modelFile: File
         get() = activeModel.value?.let(::installedFile)
             ?: throw IllegalStateException("No verified model is active")
 
-    fun isModelAvailable(): Boolean = activeModel.value != null
+    fun isModelAvailable(): Boolean =
+        loadState.value == ModelLoadState.Loaded && activeModel.value != null
 
     fun downloadModel(preset: ModelPreset): Flow<DownloadState> = flow {
+        awaitLoaded()
         if (presets.none { it == preset }) {
             emit(DownloadState.Error("This model is not approved by this build."))
             return@flow
@@ -172,7 +212,17 @@ class ModelManager internal constructor(
     private fun readActiveModel(): ModelPreset? {
         val preset = activeModelFile
             .takeIf(File::isFile)
-            ?.readText()
+            ?.inputStream()?.buffered()?.use { input ->
+                val bytes = ByteArray(257)
+                var length = 0
+                while (length < bytes.size) {
+                    val count = input.read(bytes, length, bytes.size - length)
+                    if (count == -1) break
+                    length += count
+                }
+                if (length > 256) throw IOException("Model metadata exceeds storage bound")
+                String(bytes, 0, length, Charsets.UTF_8)
+            }
             ?.trim()
             ?.let { id -> presets.firstOrNull { it.id == id } }
             ?: return null
@@ -204,6 +254,7 @@ class ModelManager internal constructor(
         metadataCandidate.writeText(preset.id)
         atomicMove(metadataCandidate, activeModelFile)
         _activeModel.value = preset
+        _loadState.value = ModelLoadState.Loaded
     }
 
     private fun atomicMove(source: File, target: File) {

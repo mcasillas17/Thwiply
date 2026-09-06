@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 import thwiply.elopenmike.com.ui.theme.ThemeMode
+import thwiply.elopenmike.com.ui.main.label
+import thwiply.elopenmike.com.llm.model.ModelLoadState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +35,8 @@ fun SettingsScreen(
 ) {
     val themeMode by viewModel.themeMode.collectAsState()
     val activeModel by viewModel.activeModel.collectAsState()
+    val selection by viewModel.selection.collectAsState()
+    val modelLoadState by viewModel.modelLoadState.collectAsState()
     val notificationDataState by notificationDataViewModel.state.collectAsState()
     var confirmDeleteNotificationData by remember { mutableStateOf(false) }
 
@@ -112,7 +116,7 @@ fun SettingsScreen(
             }
 
             // Section 2: AI Model Engine
-            SettingsSection(title = "On-Device AI Engine") {
+            SettingsSection(title = stringResource(R.string.settings_provider_title)) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -121,15 +125,17 @@ fun SettingsScreen(
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
-                                text = "Active Model",
+                                text = stringResource(R.string.provider_select),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = activeModel?.name ?: stringResource(R.string.lab_missing),
+                                text = selection.provider?.let { stringResource(it.label()) }
+                                    ?: stringResource(if (selection.failure == null)
+                                        R.string.provider_loading else R.string.provider_unknown),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (activeModel != null) {
+                                color = if (selection.provider != null) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
                                     MaterialTheme.colorScheme.error
@@ -138,29 +144,32 @@ fun SettingsScreen(
                             )
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                text = activeModel?.let { stringResource(R.string.settings_model_installed, it.size) }
-                                    ?: stringResource(R.string.settings_setup_needed),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
                     }
-
+                    if (selection.failure != null) {
+                        Text(stringResource(R.string.provider_preference_failed), color = MaterialTheme.colorScheme.error)
+                    }
+                    Text(
+                        stringResource(R.string.settings_qwen_storage,
+                            when (modelLoadState) {
+                                ModelLoadState.Loading -> stringResource(R.string.qwen_metadata_checking)
+                                is ModelLoadState.Failed -> stringResource(R.string.qwen_metadata_failed)
+                                ModelLoadState.Loaded -> activeModel?.let { stringResource(R.string.settings_model_installed, it.size) }
+                                    ?: stringResource(R.string.settings_no_qwen)
+                            }),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     OutlinedButton(onClick = onModelSetup) {
                         Text(stringResource(R.string.setup_open))
                     }
                     Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                     Text(
-                        text = "LiteRT-LM runs inference locally. Internet access is used to download the pinned model file.",
+                        text = stringResource(R.string.settings_provider_storage),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        stringResource(R.string.provider_nano_foreground),
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -236,16 +245,22 @@ fun SettingsScreen(
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
-                            text = "Local inference, explicit downloads",
+                            text = stringResource(R.string.settings_local_privacy_title),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "Prompts entered in the Lab are processed on this device. Internet access is used to download the verified model; this alpha does not capture notifications or screenshots.",
+                            text = stringResource(R.string.settings_local_privacy),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        TextButton(onClick = { uriHandler.openUri("https://developers.google.com/ml-kit/android-data-disclosure") }) {
+                            Text(stringResource(R.string.settings_mlkit_disclosure))
+                        }
+                        TextButton(onClick = { uriHandler.openUri("https://developers.google.com/ml-kit/genai-terms") }) {
+                            Text(stringResource(R.string.settings_mlkit_terms))
+                        }
                     }
                 }
             }

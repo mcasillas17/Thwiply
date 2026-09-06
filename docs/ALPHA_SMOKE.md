@@ -64,6 +64,11 @@ partial-download and filesystem headroom. Arrange unmetered networking and
 permission for the approximately 1.49 GiB download; do not silently consume a
 tester’s mobile-data allowance.
 
+That storage estimate is for Qwen only. Nano may need a separate Android-managed
+shared download, with device-dependent storage/RAM use; do not assume it is
+preinstalled or free of download/memory cost. Arrange approval for that download
+separately and satisfy the [Nano policy gates](RELEASING.md#gemini-nano-policy-and-device-gates).
+
 Recheck main, the next unused alpha version, and signing configuration:
 
 ```bash
@@ -235,8 +240,9 @@ If the guard fails, **stop**. An approved in-place update with `adb install -r`
 preserves data but requires matching signing identity and compatible version
 code; it cannot establish the fresh/no-model baseline. Alpha.3 and older
 debug-signed builds, or another disposable test-key build, may require an
-uninstall before this candidate can install. Uninstalling removes tasks and
-downloaded models. Explain this and obtain separate explicit consent; never
+uninstall before this candidate can install. Uninstalling removes local app data
+and app-managed Qwen weights; Android manages the shared Nano model independently.
+Explain this and obtain separate explicit consent; never
 automate uninstall, `pm clear`, a device wipe, or downgrade/verification bypass.
 
 Run each scenario on both target classes and record `PASS`, `FAIL`, or
@@ -244,7 +250,7 @@ Run each scenario on both target classes and record `PASS`, `FAIL`, or
 
 | Scenario | Procedure and required observation |
 |---|---|
-| Cold/no-model launch | Today opens without setup or a network requirement. In Lab, see `No model available for Lab`; `Thwip Test` is disabled. If weights already exist, do not claim the no-model case. |
+| Cold/no-model launch | On a fresh installation, Today works without model setup. The unset provider choice defaults to Qwen; in Lab, see `No model available for Lab` and a disabled `Thwip Test`. If weights or a saved Nano choice exist, do not claim this baseline. SDK network/telemetry activity is separate from manual-feature availability. |
 | Manual Today | Add `Smoke: buy oat milk`, toggle completion, cold-launch again and confirm persistence. Delete only the synthetic task you created, then confirm its removal. |
 | Settings without weights | Open Settings and the `Delete notification data and rules` confirmation, then **Cancel**. Controls must remain reachable without weights; this is not evidence that deleting real notification data was exercised. |
 | Optional setup | Enter `Model setup` from Settings, exit with Back/`Return to app` and remain on Settings. Repeat from Lab and remain on Lab. No download should be required to return. |
@@ -253,7 +259,37 @@ Run each scenario on both target classes and record `PASS`, `FAIL`, or
 | Completed generation | Uncheck `Extract JSON Task`; enter `Reply with one short sentence about a blue kite.` Tap `Thwip Test`. Save the synthetic prompt and final nonempty response. Require `Generating...` to finish, the button to become available again, and no generation error/crash. Record wall-clock duration, not claimed tokens/second. |
 | Post-inference shell | Return to Today and Settings; confirm both remain usable. Cold-launch and repeat initialization/generation if testing restart separately; this does not prove restart digest revalidation. |
 
-The approved identity at the preparation baseline is below. Recheck against
+### Gemini Nano scenarios
+
+Run these on a supported, owner-approved **physical** device with the same exact
+candidate. Determine support through the SDK, not the device name alone. Do not
+enable developer-preview enrollment; this integration uses the default stable
+configuration. On an emulator, mark real Nano cases `NOT RUN` unless actual
+service availability/inference is demonstrated, and never relabel emulator
+evidence as physical-device evidence.
+
+| Scenario | Procedure and required observation |
+|---|---|
+| Explicit selection, not download | Open setup, select **Gemini Nano**, and review the adult-use/metrics notice. Cancel leaves the choice unchanged; confirming saves Nano but is not download consent. Record the SDK-reported state separately. |
+| Unavailable/unready AICore | If unavailable or failed, record the exact safe UI state. Today, Settings and Qwen selection remain accessible; no automatic Qwen download or provider switch occurs. AICore configuration/system updates may be needed; no permanent-incompatibility or automatic-recovery promise is made. Do not reset AICore or reinstall the app without separate approval. |
+| Approved Nano preparation | Only when offered, choose **Prepare or download Gemini Nano**, review the download consent and confirm on the approved network. Require a subsequent available state; no fictitious percentage. If already ready, mark download `NOT RUN (already available)`, not a successful fresh download. |
+| Real foreground generation | Keep Thwiply top foreground. In Lab verify **Selected provider: Gemini Nano**, disable JSON extraction, and use the short synthetic blue-kite prompt above. Require a nonempty completed response with no failure/limit/Stopped indicator. Record the actual response and wall-clock duration; an enabled button alone is not completed inference. |
+| Stop and foreground loss | Start a synthetic stream and tap **Stop**; separately repeat and background the app or make another split-screen app top-resumed. Require cancellation/Stopped behavior, no new chunks after unwind, recoverable controls and a later explicit successful request. A foreground service is not an exception. Do not claim instantaneous cancellation of blocking cleanup. |
+| Navigation and switching | Leave an active stream for Today/Settings/setup. Select Qwen explicitly; require old Nano output/metrics to clear and no implicit Qwen download. Installed Qwen weights and synthetic manual tasks survive both provider changes. |
+| Restart and ownership | Leave Nano selected, cold-launch and confirm the selection survives even if Nano becomes unavailable. Settings distinguishes private Qwen files from Android's shared Nano model and never offers to delete the shared model. |
+
+The pinned prompt beta2 SDK caps output at **256 tokens**. MAX_TOKENS, the app's
+display limit, timeouts, safety rejection and empty output are failures/incomplete
+results, not completed generation. Observe quota/busy errors if encountered; do
+not deliberately exhaust a device's quota or loop retries to manufacture evidence.
+Deterministic fake-client tests cover failure cases that cannot safely be induced.
+The app currently cancels all setup/Lab work on foreground loss; Nano additionally
+has the platform-level restriction. No notification ingestion or content retention
+for later Nano processing is part of these scenarios.
+
+### Qwen artifact identity
+
+The approved Qwen identity at the preparation baseline is below. Recheck against
 `ModelPreset.kt` from **the candidate SHA**, not a later checkout:
 
 ```text
@@ -308,12 +344,13 @@ expected result:
 | Signing | Observed certificate SHA-256, expected pin source and owner approval, signature result, pin verification state |
 | Build diagnostics | Matching R8 artifact/checksums, ABI-specific mapping/configuration/seeds/usage, minification/shrinking log |
 | Target | Physical or emulator, device model, API, ABI, RAM/free storage, power/thermal/network conditions; redact serial |
-| Model | Candidate's preset ID/revision/URL/file/byte count/digest, fresh download or existing weights, verification observation |
+| Model/provider | Qwen: candidate's preset ID/revision/URL/file/byte count/digest and fresh-download verification or existing weights. Nano: packaged SDK version, default-stable configuration, observed SDK availability, Android/AICore version and whether preparation actually ran; do not invent a file URL/digest for the shared model. |
 | Scenarios | Each row above: outcome, time, expected vs actual, synthetic prompt and completed response, redacted evidence filenames |
 | Limitations | Unrun scenarios, failures, missing approvals/hardware, roadmap owner and precise recovery action |
 
-Do not report streamed chunks as tokens: the current Lab counter increments per
-stream emission (FND-11), so its `Tokens`/`t/s` labels are not valid token metrics.
+The current Lab reports Unicode characters and chars/second, not token counts.
+Older candidates with `Tokens`/`t/s` labels counted stream emissions; those labels
+are not valid token metrics. Record the candidate's actual UI, not a later build.
 Do not count debug Room/backup/navigation tests, fake engines, build success,
 or a different/rebuilt candidate as native inference evidence.
 

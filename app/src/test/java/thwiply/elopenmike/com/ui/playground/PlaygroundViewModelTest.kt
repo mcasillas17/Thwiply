@@ -10,6 +10,8 @@ import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
 import thwiply.elopenmike.com.llm.engine.*
 import thwiply.elopenmike.com.llm.model.*
+import thwiply.elopenmike.com.llm.provider.*
+import thwiply.elopenmike.com.testing.providerFixture
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaygroundViewModelTest {
@@ -18,12 +20,12 @@ class PlaygroundViewModelTest {
     @After fun tearDown() { Dispatchers.resetMain() }
 
     @Test fun `missing model rejects inference even when called outside the UI`() = runTest {
-        val engine = LlmEngineManager { error("Must not initialize") }
-        val vm = PlaygroundViewModel(engine, models(installed = false), StandardTestDispatcher(testScheduler))
+        val engine = LlmEngineManager(StandardTestDispatcher(testScheduler)) { error("Must not initialize") }
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), engine, models(false)))
         vm.prepareEngine()
         vm.generate("manual work must remain available", false)
         runCurrent()
-        assertEquals(LabReadiness.Missing, vm.readiness.value)
+        assertEquals(ProviderReadiness.Missing, vm.readiness.value)
         assertFalse(vm.isGenerating.value)
         assertEquals("", vm.output.value)
     }
@@ -31,21 +33,22 @@ class PlaygroundViewModelTest {
     @Test fun `installed model needs successful initialization and failure supports retry`() = runTest {
         var attempts = 0
         val fake = FakeEngine()
-        val engine = LlmEngineManager {
+        val engine = LlmEngineManager(StandardTestDispatcher(testScheduler)) {
             if (++attempts == 1) throw IllegalStateException("Native init failed")
             fake
         }
-        val vm = PlaygroundViewModel(engine, models(true), StandardTestDispatcher(testScheduler))
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), engine, models(true)))
         vm.generate("too early", false)
         vm.prepareEngine()
         runCurrent()
-        assertTrue(vm.readiness.value is LabReadiness.Failed)
+        assertTrue("readiness=${vm.readiness.value}; failure=${vm.generationFailure.value}; busy=${vm.busy.value}",
+            vm.readiness.value is ProviderReadiness.Failed)
         vm.generate("still not ready", false)
         runCurrent()
         assertEquals(0, fake.generations)
         vm.prepareEngine()
         runCurrent()
-        assertEquals(LabReadiness.Ready, vm.readiness.value)
+        assertEquals(ProviderReadiness.Ready, vm.readiness.value)
         vm.generate("hello", false)
         vm.generate("duplicate", false)
         vm.isGenerating.first { !it }
@@ -54,18 +57,18 @@ class PlaygroundViewModelTest {
     }
 
     @Test fun `readiness rejects an engine for a different installed path`() = runTest {
-        val engine = LlmEngineManager { FakeEngine() }
+        val engine = LlmEngineManager(StandardTestDispatcher(testScheduler)) { FakeEngine() }
         engine.initialize(temporaryFolder.newFile("other.litertlm"))
-        val vm = PlaygroundViewModel(engine, models(true), StandardTestDispatcher(testScheduler))
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), engine, models(true)))
         vm.generate("wrong engine", false)
         runCurrent()
-        assertEquals(LabReadiness.NeedsInitialization, vm.readiness.value)
+        assertEquals(ProviderReadiness.NeedsInitialization, vm.readiness.value)
         assertFalse(vm.isGenerating.value)
     }
 
     @Test fun `generation cancellation propagates without becoming an error response`() = runTest {
-        val engine = LlmEngineManager { FakeEngine(cancel = true) }
-        val vm = PlaygroundViewModel(engine, models(true), StandardTestDispatcher(testScheduler))
+        val engine = LlmEngineManager(StandardTestDispatcher(testScheduler)) { FakeEngine(cancel = true) }
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), engine, models(true)))
         vm.prepareEngine()
         runCurrent()
         vm.generate("hello", false)
@@ -73,6 +76,172 @@ class PlaygroundViewModelTest {
         assertFalse(vm.isGenerating.value)
         assertEquals("", vm.output.value)
         assertNull(vm.generationFailure.value)
+    }
+
+    @Test fun `performance count measures text rather than stream emissions`() = runTest {
+        val engine = LlmEngineManager(StandardTestDispatcher(testScheduler)) { FakeEngine() }
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), engine, models(true)))
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("hello", false)
+        vm.isGenerating.first { !it }
+        assertEquals("response".length, vm.metrics.value.characterCount)
+    }
+
+    @Test fun `Nano stop closes its stream and allows another foreground request`() = runTest {
+        val nano = FakeNano(flow { emit("partial"); awaitCancellation() })
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        assertEquals("failure=${vm.generationFailure.value}; busy=${vm.busy.value}",
+            ProviderReadiness.Ready, vm.readiness.value)
+        vm.generate("synthetic prompt", false)
+        runCurrent()
+        assertEquals("partial", vm.output.value)
+        assertTrue(vm.isGenerating.value)
+        vm.stop()
+        runCurrent()
+        assertFalse(vm.isGenerating.value)
+        assertTrue(vm.stopped.value)
+        assertNull(vm.generationFailure.value)
+        assertTrue(nano.closes >= 2) // Availability client and generation client.
+
+        nano.responses = flowOf("second")
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("another prompt", false)
+        runCurrent()
+        assertEquals("second", vm.output.value)
+        assertFalse(vm.stopped.value)
+        assertFalse(vm.isGenerating.value)
+    }
+
+    @Test fun `switching providers discards old partial output without choosing a fallback`() = runTest {
+        val nano = FakeNano(flow { emit("old output"); awaitCancellation() })
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("synthetic prompt", false)
+        runCurrent()
+        fixture.selectProvider(ModelProvider.QWEN)
+        runCurrent()
+        assertEquals("", vm.output.value)
+        assertEquals(PlaygroundMetrics(), vm.metrics.value)
+        assertEquals(ModelProvider.QWEN, vm.selection.value.provider)
+        assertEquals(ProviderReadiness.Missing, vm.readiness.value)
+        assertFalse(vm.isGenerating.value)
+    }
+
+    @Test fun `losing top foreground cancels Nano without reporting successful completion`() = runTest {
+        val nano = FakeNano(flow { emit("partial"); awaitCancellation() })
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("synthetic prompt", false)
+        runCurrent()
+        fixture.setForeground(false)
+        runCurrent()
+        assertFalse(vm.isGenerating.value)
+        assertTrue(vm.stopped.value)
+        assertNull(vm.generationFailure.value)
+    }
+
+    @Test fun `safety rejection removes partial text and keeps original cause`() = runTest {
+        val cause = IllegalStateException("synthetic policy failure")
+        val nano = FakeNano(flow {
+            emit("must be removed")
+            throw InferenceFailure(FailureKind.SAFETY, cause)
+        })
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("synthetic prompt", false)
+        runCurrent()
+        assertEquals("", vm.output.value)
+        assertEquals(0, vm.metrics.value.characterCount)
+        assertEquals(FailureKind.SAFETY, vm.generationFailure.value?.kind)
+        assertSame(cause, vm.generationFailure.value?.cause)
+    }
+
+    @Test fun `character metrics join surrogate pairs split between stream chunks`() = runTest {
+        val nano = FakeNano(flowOf("A\uD83D", "\uDE00B"))
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("synthetic prompt", false)
+        runCurrent()
+        assertEquals("A\uD83D\uDE00B", vm.output.value)
+        assertEquals(3, vm.metrics.value.characterCount)
+    }
+
+    @Test fun `empty response clears whitespace and metrics`() = runTest {
+        val nano = FakeNano(flowOf(" ", "\n"))
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        vm.generate("synthetic prompt", false)
+        runCurrent()
+        assertEquals(FailureKind.EMPTY_OUTPUT, vm.generationFailure.value?.kind)
+        assertEquals("", vm.output.value)
+        assertEquals(PlaygroundMetrics(), vm.metrics.value)
+    }
+
+    @Test fun `blank input is not described as exceeding the length limit`() = runTest {
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder()))
+        vm.generate(" ", false)
+        assertNotNull(vm.generationFailure.value)
+        assertNotEquals(FailureKind.INPUT_TOO_LONG, vm.generationFailure.value?.kind)
+    }
+
+    @Test fun `Lab reentry waits for cancelled preparation cleanup then prepares again`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        var checks = 0
+        val nano = FakeNano(emptyFlow())
+        nano.onStatus = {
+            if (++checks == 1) {
+                try { awaitCancellation() }
+                finally { withContext(NonCancellable) { cleanup.await() } }
+            }
+            NanoState.Ready
+        }
+        val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
+        fixture.selectProvider(ModelProvider.GEMINI_NANO)
+        val vm = PlaygroundViewModel(fixture)
+        vm.prepareEngine()
+        runCurrent()
+        vm.stop()
+        runCurrent()
+        assertTrue(fixture.busy.value)
+        vm.prepareEngine()
+        runCurrent()
+        assertEquals(1, checks)
+        cleanup.complete(Unit)
+        runCurrent()
+        assertEquals(2, checks)
+        assertEquals(ProviderReadiness.Ready, vm.readiness.value)
+        assertFalse(fixture.busy.value)
+    }
+
+    private class FakeNano(var responses: Flow<String>) : NanoClient {
+        var closes = 0
+        var onStatus: suspend () -> NanoState = { NanoState.Ready }
+        override suspend fun checkStatus() = onStatus()
+        override suspend fun download() = error("No download consent")
+        override suspend fun countTokens(prompt: String) = 10
+        override fun generate(prompt: String) = responses
+        override fun close() { closes++ }
     }
 
     // Exercises the existing length-based restart adoption, not new digest verification.

@@ -18,6 +18,7 @@ import org.junit.*
 import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
 import thwiply.elopenmike.com.llm.model.*
+import thwiply.elopenmike.com.testing.providerFixture
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OnboardingDownloadTest {
@@ -54,7 +55,7 @@ class OnboardingDownloadTest {
             chain.proceed(chain.request().newBuilder().url(server.url("/model")).build())
         }.build()
         val models = ModelManager(directory, client, listOf(preset))
-        val viewModel = OnboardingViewModel(models::isModelAvailable) { models.downloadModel(preset) }
+        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), models::isModelAvailable) { models.downloadModel(preset) }
         try {
             viewModel.startDownload()
             runCurrent()

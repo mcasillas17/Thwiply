@@ -1,11 +1,11 @@
 <div align="center">
   <img src="artwork/play-store/ic_launcher-playstore-512.png" width="120" height="120" alt="Thwiply Icon" />
   <h1>Thwiply 🕸️</h1>
-  <p><strong>Actionable task extraction out of everyday noise — 100% on-device.</strong></p>
+  <p><strong>Manual tasks and experimental AI, with inference on-device.</strong></p>
   <p>
     <img src="https://img.shields.io/badge/Package-thwiply.elopenmike.com-00A3FF?style=flat-square" alt="Package" />
     <img src="https://img.shields.io/badge/Platform-Android_12%2B_(API_31%2B)-3DDC84?style=flat-square&logo=android&logoColor=white" alt="Platform" />
-    <img src="https://img.shields.io/badge/Runtime-LiteRT--LM-00687A?style=flat-square" alt="Runtime" />
+    <img src="https://img.shields.io/badge/Runtime-LiteRT--LM_%2B_ML_Kit-00687A?style=flat-square" alt="Runtimes: LiteRT-LM and ML Kit" />
     <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" />
   </p>
 </div>
@@ -17,14 +17,32 @@
 ---
 
 ## 🛡️ Core Principle: Privacy First
-LLM inference runs on the Android device. Internet access is used solely to download a pinned model from Hugging Face, and the downloaded file is verified before activation. The alpha has no account, backend, analytics, notification listener, or screenshot observer. Its local Room schema stores approved display fields, decisions, corrections, rules, and minimal source provenance; it has no column for a raw notification body, text, payload, extras, or prompt.
+LLM prompts and responses are processed on the Android device, not by a cloud
+inference service. Qwen downloads come from Hugging Face and are verified before
+activation. Android AICore manages Gemini Nano downloads and updates separately.
+The included ML Kit SDK contacts Google for updates/configuration and sends usage
+and performance metrics, including identifiers and input/output sizes; it does
+not send the feature's prompts or responses to Google. Its initialization provider
+can run before a user selects Nano. On-device inference does **not** mean no
+network activity or no SDK telemetry.
+
+The alpha has no app account, app-owned backend or product analytics, notification
+listener, or screenshot observer. Lab experiments are not automatically saved as
+tasks. The local Room schema has no column for a raw notification body, text,
+payload, extras, or prompt. See [ML Kit privacy terms](https://developers.google.com/ml-kit/terms#privacy)
+and [Android data disclosure](https://developers.google.com/ml-kit/android-data-disclosure).
+Nano use is for adults (18+) under the
+[GenAI terms](https://developers.google.com/ml-kit/genai-terms); the
+[release guidance](docs/RELEASING.md#gemini-nano-policy-and-device-gates) describes
+the additional audience and data-disclosure gates.
 
 ---
 
 ## ✨ Features
 
 - **Verified Model Installation:** Resumable download, exact-size validation, SHA-256 verification, and atomic activation.
-- **On-Device LLM Lab:** Runs Qwen 2.5 1.5B through LiteRT-LM for local prompt experiments, structured extraction testing, and live performance metrics.
+- **Two Explicit On-Device Providers:** Qwen 2.5 1.5B through LiteRT-LM, or optional Gemini Nano through ML Kit/AICore on supported devices. Selection persists; failures never silently switch providers or download Qwen.
+- **Foreground LLM Lab:** Bounded streaming experiments, Stop, safe failure states, and character-based metrics. JSON output remains experimental: it is neither validated product triage nor automatically persisted as tasks.
 - **Durable Today Tasks:** Manual tasks, completion-state updates, and deletions survive app and database recreation through the repository layer.
 - **Optional Model Setup:** Today and Settings are available without model weights. Enter or resume setup from inside the app; Lab enables inference only when its model and local engine are ready.
 - **Privacy-Minimized Data Foundation:** Versioned Room schemas, explicit migrations, 30-day retention for future notification-derived records, a confirmed delete-all control, and explicit database exclusions from cloud backup and device transfer.
@@ -39,8 +57,8 @@ LLM inference runs on the Android device. Internet access is used solely to down
 - **Language:** Kotlin (Modern Idiomatic)
 - **UI Framework:** Jetpack Compose with Material 3
 - **Package / Namespace:** `thwiply.elopenmike.com`
-- **LLM Runtime:** [LiteRT-LM](https://ai.google.dev/edge/litert) (Google AI Edge on-device acceleration)
-- **Model:** Qwen 2.5 1.5B Instruct (pinned LiteRT-LM build)
+- **LLM Runtimes:** [LiteRT-LM](https://ai.google.dev/edge/litert) and [ML Kit Prompt API](https://developers.google.com/ml-kit/genai/prompt/android/get-started) (`genai-prompt:1.0.0-beta2`)
+- **Models:** Qwen 2.5 1.5B Instruct (pinned app-managed artifact), or Gemini Nano (Android-managed shared model, default stable configuration)
 - **Dependency Injection:** Hilt
 - **Local Data:** Room with exported schemas and tested manual migrations
 - **Async & Reactive Architecture:** Kotlin Coroutines + Flow / StateFlow
@@ -52,8 +70,9 @@ LLM inference runs on the Android device. Internet access is used solely to down
 
 ### Prerequisites
 - Android device or emulator with **Min SDK 31 (Android 12+)**.
-- For optional Lab inference: about 1.6 GB of free storage for the pinned model, plus installation headroom.
-- For LLM execution: Pixel 6 or newer (or equivalent ARM64 / x86_64 device) recommended.
+- For Qwen: about 1.6 GB of free storage for weights, plus installation/runtime headroom; Pixel 6 or equivalent ARM64 hardware recommended. The x86_64 build supports emulator development.
+- For Nano: the SDK must report availability for the device and its AICore configuration. A shared model download may be needed and still consumes storage/RAM; there is no universal footprint or promise of emulator support.
+- Nano acceptance requires real inference on a supported physical device. Current deterministic and emulator coverage is **not** that evidence; see the [roadmap](docs/ROADMAP.md#optional-foreground-gemini-nano).
 
 ### Install an alpha release
 
@@ -79,11 +98,13 @@ Releases after `v1.0.0-alpha.3` use a persistent alpha signing identity and a
 monotonically increasing Android version code. If `v1.0.0-alpha.3` or an earlier
 debug-signed build is installed, uninstall it once before installing the first
 persistently signed alpha. That uninstall removes local app data and downloaded
-models. Later persistently signed alphas can be installed as updates.
+Qwen weights. Android manages the shared Nano model independently. Later
+persistently signed alphas can be installed as updates.
 
 The arm64 alpha is minified, contains only arm64 native libraries, and is
-enforced below 32 MiB. The pinned model is not bundled in the APK; you can
-choose to download and verify it through model setup after installation.
+enforced below 32 MiB. Neither model's weights are bundled in the APK. You can
+explicitly download and verify Qwen or check/prepare Android-managed Nano through
+model setup.
 
 ### Build from source
 
@@ -110,24 +131,59 @@ tasks immediately, or open **Settings** for preferences and the confirmed
 notification-data deletion control. These features remain available when a
 model is missing or unusable.
 
-Choose **Model setup** in Settings, or from Lab when setup is needed. Use
-**Download or resume model** to install the pinned Qwen 2.5 1.5B model, or
-**Retry download** after a failure. Back and **Return to app** return to the
-previous shell tab. Setup completion waits for your explicit return; it does
-not redirect you away from manual work.
+Choose **Model setup** in Settings or **Select on-device provider** in Lab.
+Qwen is the default only when no choice has been saved. Selection is stored
+separately from model installation; changing it does not delete manual tasks,
+notification-data rules, or existing Qwen weights.
+
+| Provider | Setup and ownership |
+|---|---|
+| Qwen 2.5 1.5B | **Download or resume model** (or **Retry download**) installs the revision-pinned, 1.49 GiB LiteRT-LM artifact in Thwiply's private no-backup storage. Size and SHA-256 checks precede activation. Existing installations remain available. |
+| Gemini Nano | Read and confirm the adult-use/SDK-metrics notice to select it. **Check availability** queries the SDK; **Prepare or download Gemini Nano** then requires separate download consent. Android manages the shared model; this is not another downloadable `.litertlm` preset. Thwiply cannot delete AICore's shared model. |
+
+Nano distinguishes checking, unavailable, downloadable, downloading, ready and
+failed states. **Unavailable** can mean unsupported hardware or incomplete AICore
+configuration; it is not a permanent compatibility verdict. Update Android/AICore
+when appropriate and check again explicitly. A download in progress has no
+invented percentage. A failed or unavailable Nano selection stays selected,
+including after restart; Qwen is an explicit alternative, never a fallback.
+
+Back and **Return to app** return to the previous tab. Setup completion does not
+redirect you away from manual work. Qwen metadata is read off the main thread;
+read failures are visible without preventing Today, Settings or Nano use.
 
 Interrupted downloads retain partial data and resume when supported by the
-server. Leaving setup cancels its download collection; an in-flight network
-read may take time to unwind before another attempt can start. Downloads are
-not scheduled to run in the background. Downloaded files must pass exact-size
-and SHA-256 checks before activation.
+server. Leaving setup or losing top foreground cancels Thwiply's operation; an
+in-flight network read or native operation can take time to unwind before another
+can start. No app model download is scheduled in the background. Android may
+continue its own shared Nano download after Thwiply stops observing it.
 
-The **Lab** tab is always reachable. It distinguishes a missing model, an engine
-that needs initialization, initialization in progress, and failure. It enables
-inference only when a model is available and the local engine is ready for that
-model. Opening Lab initializes an installed
-model; failed initialization offers **Retry initialization** and **Model
-setup**. Today and Settings remain usable while initialization runs.
+The **Lab** tab is always reachable and clearly identifies the selected provider.
+Opening it initializes installed Qwen weights or checks Nano; only a ready
+provider can generate. Stop, leaving Lab, losing top foreground, and switching
+providers cancel owned work. Switching clears old output and metrics. Busy,
+quota, background denial, safety rejection, empty output, time limits and other
+failures are visible without automatic retries. Safety-rejected and empty
+responses clear the displayed output.
+
+Nano's **platform** restriction permits inference only in the top foreground
+app; a foreground service is insufficient. This alpha keeps all setup/Lab model
+work foreground-scoped, including Qwen. Nano is **not a background notification-
+triage backend**. No notification ingestion or deferred notification-content
+processing is implemented.
+
+Lab limits are 2,000 UTF-16 input units, 6,000 for the complete prompt including
+the JSON wrapper, and 8,000 for displayed output. Nano additionally counts the
+actual prompt: input must be below 4,000 tokens and input plus configured output
+must fit `getTokenLimit()`. The pinned beta2 request builder supports **at most
+256 output tokens**, despite newer online references showing larger limits.
+Truncation is reported as incomplete, not successful JSON extraction.
+
+Nano status checks use a 30-second deadline, engine initialization/generation two
+minutes, and downloads 15 minutes. These are cooperative deadlines, not promises that
+blocking native cleanup finishes immediately; controls stay busy until owned
+work unwinds. Metrics count Unicode code points, not streamed chunks or model
+tokens. Do not treat experimental output as validated triage or high-stakes advice.
 
 ```mermaid
 flowchart TD
@@ -136,13 +192,20 @@ flowchart TD
     shell --> settings["Settings: preferences and deletion"]
     shell --> lab["Lab"]
     settings -->|Model setup| setup["Optional model setup"]
-    lab -->|Model setup when needed| setup
+    lab -->|Select provider or open setup| setup
     setup -->|Back or Return to app: previous tab| shell
-    setup -->|Retry or resume download| setup
-    lab --> ready{"Model available and engine ready?"}
-    ready -->|Yes| inference["Local inference enabled"]
-    ready -->|No| gated["Inference disabled: missing, needs initialization, initializing, or failed"]
-    gated -->|Retry initialization when needed| lab
+    setup --> choice["Persist explicit provider choice"]
+    choice -->|Qwen: explicit download| qwen["ModelManager: pinned size/SHA-256 activation"]
+    choice -->|Nano: check, then explicit preparation consent| nano["ML Kit: Android-managed AICore model"]
+    lab --> gate["Foreground + selected-ready provider + exclusive operation"]
+    gate -->|Qwen| engine["Process-owned LiteRT-LM engine"]
+    gate -->|Nano| sdk["Per-operation ML Kit client; close after work"]
+    qwen --> engine
+    nano --> sdk
+    engine --> output["Bounded experimental stream; never saved as tasks"]
+    sdk --> output
+    gate -->|Not ready or failed| gated["Visible state; explicit retry/setup, no fallback"]
+    output -->|Stop, leave, background or switch| cleanup["Cancel and retain ownership until cleanup"]
 ```
 
 ### Notification-data retention and cleanup
@@ -285,13 +348,18 @@ cached test outcomes. Gradle manages device creation, clean baseline snapshots,
 headless startup, and shutdown; animations are disabled and only one managed
 device runs at a time. Do not add class selectors to CI: the full suite must run.
 The checker fails on missing reports/classes, inconsistent counts, duplicates,
-errors, assertion failures, or skipped tests. The current suite executes 29
+errors, assertion failures, or skipped tests. The current suite executes 38
 tests: `ThwiplyDatabaseTest` 12, `ThwiplyMigrationTest` 1,
 `BackupConfigurationTest` 1, `ExampleInstrumentedTest` 1,
-`AppNavigationTest` 9, `ModelOptionalLaunchTest` 2,
-`NotificationMaintenanceSchedulerTest` 2, and `TodayCleanupFailureTest` 1. The
+`AppNavigationTest` 12, `ModelOptionalLaunchTest` 2,
+`NotificationMaintenanceSchedulerTest` 2, `TodayCleanupFailureTest` 1,
+`ProviderControlsTest` 5, and `ProviderSetupTest` 1. The
 FND-01 foundation baseline remains 11 tests; FND-02 adds 11 navigation tests and
-FND-12 adds 7 retention-cleanup tests.
+FND-12 adds 7 retention-cleanup tests. The optional-provider work adds 9 cases.
+Provider controls use deterministic callbacks; the real-activity test covers
+selection persistence and navigation, not successful AICore inference or a real
+model download. JVM tests additionally use fake engines/SDK clients, actual
+beta2 request builders, and small local artifact fixtures.
 
 Local HTML: `app/build/reports/androidTests/managedDevice/debug/allDevices/index.html`.
 XML and per-test logcat:

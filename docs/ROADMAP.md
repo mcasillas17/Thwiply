@@ -1,7 +1,7 @@
 # Thwiply Product Roadmap
 
 **Status:** Phase 0 and Phase 1 delivered scope complete; FND-01 and FND-02 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
 
 ## Product direction
 
@@ -173,6 +173,33 @@ download architecture remains `FND-10`. No physical-device or minified native
 inference smoke is claimed. `FND-08` and `P2-02` remain **Blocked**
 on their other listed prerequisites. See [setup guidance and navigation
 diagram](../README.md#first-launch).
+
+FND-13 smoke preparation was recorded on 2026-09-06 (UTC), against re-fetched
+`main` at `bcef9ac7e1fa037566151e6fcfbb4f8ab83d5596`:
+
+- The [smoke runbook](ALPHA_SMOKE.md) reuses candidate verification and specifies
+  safe no-model/manual/setup/download/native-generation scenarios on an emulator
+  and physical arm64 device. The existing preflight now preserves each ABI's
+  R8 reports before `clean`, with candidate-bound provenance and checksums.
+- Local **unsigned** minified builds packaged version `1.0.0-alpha.4`, code
+  `31`, with the correct single ABI: arm64 was 26,159,022 bytes (below
+  33,554,432); x86_64 was 31,895,282 bytes. Merged dependency/default rules and
+  retained JNI names were inspected; no demonstrated keep-rule defect was found
+  and no application R8 rules were added. This is packaging evidence only.
+- The SDK/JDK and API 36 ARM64 emulator were available; no physical device was
+  connected. GitHub's environment/secret/variable listings were empty and no
+  preflight run existed. No signing run was dispatched, candidate installed,
+  model downloaded or generation completed. Both preliminary test-key and final
+  pinned-candidate runtime evidence remain **not obtained**.
+- `v1.0.0-alpha.3` remained the latest published release; alpha.4 was unused,
+  not reserved or published. [Baseline main CI](https://github.com/mcasillas17/Thwiply/actions/runs/34012247962)
+  passed both jobs; that is not minified native inference evidence.
+
+`FND-13` remains **Blocked** on FND-08 through FND-11 and missing signed-candidate/
+physical-device proof. `FND-14` remains **Ready**, separate from FND-02: the root
+LICENSE is still absent and Settings still displays `1.0.0 (Alpha)` rather than
+the packaged version. Owner provisioning/approval and suitable hardware are
+required before final smoke; all applicable release gates remain independent.
 
 ### Phase 2 - consent and bounded notification ingestion
 

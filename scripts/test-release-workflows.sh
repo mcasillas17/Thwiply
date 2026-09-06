@@ -530,5 +530,125 @@ else
   failed=$((failed + 1))
 fi
 
+if python3 - "$preflight_workflow" <<'PY'
+import hashlib
+import os
+import pathlib
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import textwrap
+
+workflow = pathlib.Path(sys.argv[1]).read_text()
+steps = dict(re.findall(
+    r"^      - name: ([^\n]+)\n(.*?)(?=^      - name:|\Z)",
+    workflow, re.MULTILINE | re.DOTALL,
+))
+reports = ("configuration.txt", "mapping.txt", "seeds.txt", "usage.txt")
+order = list(steps)
+for abi, following in (
+    ("arm64-v8a", "Build x86_64 emulator candidate"),
+    ("x86_64", "Sign and verify candidate APKs"),
+):
+    name = f"Retain {abi} R8 evidence"
+    assert name in steps, f"missing per-ABI shrinker retention: {name}"
+    preceding = ("Test, lint, and build arm64 candidate" if abi == "arm64-v8a"
+                 else "Build x86_64 emulator candidate")
+    assert order.index(preceding) < order.index(name) < order.index(following), (
+        f"{abi}: retain the completed build's reports before clean/signing"
+    )
+    script = textwrap.dedent(steps[name].split("run: |\n", 1)[1])
+    for failure in (None, "missing", "symlink"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            source = root / "app/build/outputs/mapping/alpha"
+            source.mkdir(parents=True)
+            for report in reports:
+                (source / report).write_text(f"{abi}: {report}\n")
+            # Empty usage is legitimate if R8 removed nothing.
+            (source / "usage.txt").write_text("")
+            if failure:
+                (source / "mapping.txt").unlink()
+                if failure == "symlink":
+                    (source / "mapping.txt").symlink_to(source / "configuration.txt")
+            result = subprocess.run(
+                ["bash", "-c", script], cwd=root,
+                env={**os.environ, "RUNNER_TEMP": str(root / "runner")},
+                capture_output=True, text=True,
+            )
+            assert (result.returncode == 0) == (failure is None), (
+                f"{abi}/{failure}: {result.stdout}{result.stderr}"
+            )
+            if failure is None:
+                target = root / "runner/alpha-r8" / abi
+                assert sorted(p.name for p in target.iterdir()) == sorted(reports)
+                for report in reports:
+                    assert (source / report).read_bytes() == (target / report).read_bytes()
+            else:
+                assert "Missing or symlinked R8 report" in result.stderr
+            print(f"PASS: {abi} R8 retention: {failure or 'exact bytes, including empty usage'}")
+
+seal = steps["Bind R8 evidence to candidate"]
+upload = steps["Upload candidate R8 evidence"]
+assert order.index("Confirm the upload carries no signing material") \
+    < order.index("Bind R8 evidence to candidate") \
+    < order.index("Upload candidate R8 evidence")
+assert "if:" not in seal and "if:" not in upload, "do not upload incomplete candidate proof"
+assert "retention-days: 14" in upload and "if-no-files-found: error" in upload
+assert "${{ env.CANDIDATE_LABEL }}-${{ github.run_id }}" in upload
+paths = set(line.strip() for line in upload.split("path: |\n", 1)[1].splitlines() if line.strip())
+expected = {"${{ runner.temp }}/alpha-r8/" + name for name in
+            ("CANDIDATE.txt", "APK-SHA256SUMS", "SHA256SUMS")}
+expected |= {"${{ runner.temp }}/alpha-r8/" + abi + "/" + report
+             for abi in ("arm64-v8a", "x86_64") for report in reports}
+assert paths == expected, f"R8 upload must use exact non-secret file paths: {paths}"
+with tempfile.TemporaryDirectory() as directory:
+    root = pathlib.Path(directory)
+    candidate = root / "candidate"
+    candidate.mkdir()
+    (candidate / "CANDIDATE.txt").write_text("fixture source SHA and signing provenance\n")
+    (candidate / "SHA256SUMS").write_text("fixture signed APK checksums\n")
+    for abi in ("arm64-v8a", "x86_64"):
+        target = root / "alpha-r8" / abi
+        target.mkdir(parents=True)
+        for report in reports:
+            (target / report).write_text(f"{abi}: {report}\n")
+    script = textwrap.dedent(seal.split("run: |\n", 1)[1])
+    minimal_path = root / "minimal-bin"
+    minimal_path.mkdir()
+    (minimal_path / "cp").symlink_to(shutil.which("cp"))
+    for path in (os.environ["PATH"], str(minimal_path)):
+        # The Ubuntu workflow uses coreutils; macOS fixtures need only Python.
+        adapter = "" if shutil.which("sha256sum", path=path) else f"""sha256sum() {{
+  {shlex.quote(sys.executable)} -c 'import hashlib, pathlib, sys
+for name in sys.argv[1:]:
+    print(hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() + "  " + name)' "$@"
+}}
+"""
+        result = subprocess.run([shutil.which("bash"), "-c", adapter + script], cwd=root,
+                                env={**os.environ, "PATH": path, "RUNNER_TEMP": str(root),
+                                     "CANDIDATE_DIR": str(candidate)}, capture_output=True, text=True)
+        assert result.returncode == 0, result.stdout + result.stderr
+    evidence = root / "alpha-r8"
+    assert (evidence / "CANDIDATE.txt").read_bytes() == (candidate / "CANDIDATE.txt").read_bytes()
+    assert (evidence / "APK-SHA256SUMS").read_bytes() == (candidate / "SHA256SUMS").read_bytes()
+    listed = dict(line.split("  ", 1)[::-1]
+                  for line in (evidence / "SHA256SUMS").read_text().splitlines())
+    assert set(listed) == {"CANDIDATE.txt", "APK-SHA256SUMS"} | {
+        f"{abi}/{report}" for abi in ("arm64-v8a", "x86_64") for report in reports
+    }
+    for name, digest in listed.items():
+        assert hashlib.sha256((evidence / name).read_bytes()).hexdigest() == digest, name
+print("PASS: R8 provenance and upload allowlist, including a host without sha256sum")
+PY
+then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+fi
+
 printf '%d passed, %d failed\n' "$passed" "$failed"
 ((failed == 0))

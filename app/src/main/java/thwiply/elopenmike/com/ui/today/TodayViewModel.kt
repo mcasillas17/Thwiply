@@ -1,18 +1,26 @@
 package thwiply.elopenmike.com.ui.today
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Clock
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
+import thwiply.elopenmike.com.domain.cleanup.CLEANUP_LOG_TAG
+import thwiply.elopenmike.com.domain.cleanup.NotificationCleanupTrigger
+import thwiply.elopenmike.com.domain.cleanup.NotificationDataCleanupCoordinator
 import thwiply.elopenmike.com.domain.triage.DecisionOrigin
-import thwiply.elopenmike.com.domain.triage.NotificationDataLifecycleRepository
 import thwiply.elopenmike.com.domain.triage.RepositoryResult
 import thwiply.elopenmike.com.domain.triage.SourceReference
 import thwiply.elopenmike.com.domain.triage.StorageFailureReason
@@ -22,6 +30,7 @@ import thwiply.elopenmike.com.domain.triage.TriageDecision
 import thwiply.elopenmike.com.domain.triage.TriageItem
 import thwiply.elopenmike.com.domain.triage.TriageRecord
 import thwiply.elopenmike.com.domain.triage.TriageRepository
+import thwiply.elopenmike.com.domain.triage.VisibleTriageRecords
 
 enum class TaskFilter(val label: String) {
     ALL("All"),
@@ -36,14 +45,20 @@ enum class TaskInputFailure {
     SUMMARY_TOO_LONG,
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class TodayViewModel @Inject constructor(
     private val triageRepository: TriageRepository,
-    private val dataLifecycleRepository: NotificationDataLifecycleRepository,
+    private val cleanupCoordinator: NotificationDataCleanupCoordinator,
+    private val clock: Clock,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = _uiState.asStateFlow()
     private var todayObservationJob: Job? = null
+    private var expiryRefreshJob: Job? = null
+
+    /** Time the visible records were read as of; a new value re-reads with a fresh cutoff. */
+    private val visibleAsOfEpochMillis = MutableStateFlow(0L)
 
     private val _selectedFilter = MutableStateFlow(TaskFilter.ALL)
     val selectedFilter: StateFlow<TaskFilter> = _selectedFilter.asStateFlow()
@@ -54,38 +69,86 @@ class TodayViewModel @Inject constructor(
     private val _taskInputFailure = MutableStateFlow<TaskInputFailure?>(null)
     val taskInputFailure: StateFlow<TaskInputFailure?> = _taskInputFailure.asStateFlow()
 
+    /**
+     * True when the last cleanup run could not delete expired notification data. Expired
+     * records stay hidden and manual tasks stay usable, so this never blocks the screen.
+     */
+    private val _cleanupWarning = MutableStateFlow(false)
+    val cleanupWarning: StateFlow<Boolean> = _cleanupWarning.asStateFlow()
+
     fun setFilter(filter: TaskFilter) {
         _selectedFilter.value = filter
     }
 
+    /**
+     * Entry and every resume of Today: re-read records against the current time and run the
+     * shared cleanup. The two are independent jobs, so a cleanup failure can neither cancel
+     * the read nor hide durable rows, and already-loaded records are not replaced by a
+     * loading state on re-entry.
+     */
     fun onTodayEntered() {
         todayObservationJob?.cancel()
-        _uiState.value = TodayUiState.Loading
+        expiryRefreshJob?.cancel()
+        if (_uiState.value !is TodayUiState.Content) {
+            _uiState.value = TodayUiState.Loading
+        }
+        visibleAsOfEpochMillis.value = clock.millis()
+        launchCleanup(NotificationCleanupTrigger.TODAY_ENTRY)
         todayObservationJob = viewModelScope.launch {
-            when (
-                dataLifecycleRepository.purgeExpiredNotificationData(
-                    nowEpochMillis = System.currentTimeMillis(),
-                )
-            ) {
-                is RepositoryResult.Success -> {
-                    triageRepository.observeTriageRecords().collect { result ->
-                        _uiState.value = when (result) {
-                            is RepositoryResult.Success -> {
-                                val tasks = result.value.map(TriageRecord::toTaskItem)
-                                if (tasks.isEmpty()) {
-                                    TodayUiState.Empty
-                                } else {
-                                    TodayUiState.Content(tasks)
-                                }
-                            }
-
-                            is RepositoryResult.Failure -> TodayUiState.StorageError
-                        }
-                    }
+            visibleAsOfEpochMillis
+                .flatMapLatest { nowEpochMillis ->
+                    triageRepository.observeVisibleTriageRecords(nowEpochMillis)
                 }
+                .collect(::render)
+        }
+    }
 
-                is RepositoryResult.Failure -> _uiState.value = TodayUiState.StorageError
+    fun retryCleanup() {
+        launchCleanup(NotificationCleanupTrigger.TODAY_ENTRY)
+    }
+
+    /**
+     * Cleanup is best effort. A typed storage failure raises the nonblocking warning; an
+     * unexpected failure raises the same warning and records a bounded, content-free
+     * diagnostic instead of taking Today down. Cancellation is never handled here.
+     */
+    private fun launchCleanup(trigger: NotificationCleanupTrigger) {
+        val unexpectedFailureHandler = CoroutineExceptionHandler { _, throwable ->
+            _cleanupWarning.value = true
+            Log.e(
+                CLEANUP_LOG_TAG,
+                "trigger=$trigger outcome=unexpected error=${throwable.javaClass.simpleName}",
+            )
+        }
+        viewModelScope.launch(unexpectedFailureHandler) {
+            val outcome = cleanupCoordinator.cleanUpExpiredNotificationData(trigger)
+            _cleanupWarning.value = outcome is RepositoryResult.Failure
+        }
+    }
+
+    private fun render(result: RepositoryResult<VisibleTriageRecords>) {
+        _uiState.value = when (result) {
+            is RepositoryResult.Success -> {
+                scheduleExpiryRefresh(result.value.nextExpiryAtEpochMillis)
+                val tasks = result.value.records.map(TriageRecord::toTaskItem)
+                if (tasks.isEmpty()) TodayUiState.Empty else TodayUiState.Content(tasks)
             }
+
+            is RepositoryResult.Failure -> TodayUiState.StorageError
+        }
+    }
+
+    /**
+     * Re-reads once when the earliest visible notification record expires. One timer per
+     * emission, driven by stored expiry values, so nothing polls while Today is open. The
+     * timer does not advance while the device sleeps; the resume boundary covers that.
+     */
+    private fun scheduleExpiryRefresh(nextExpiryAtEpochMillis: Long?) {
+        expiryRefreshJob?.cancel()
+        val expiry = nextExpiryAtEpochMillis ?: return
+        expiryRefreshJob = viewModelScope.launch {
+            delay(expiry - clock.millis())
+            visibleAsOfEpochMillis.value = maxOf(clock.millis(), expiry)
         }
     }
 
@@ -104,10 +167,7 @@ class TodayViewModel @Inject constructor(
         runRepositoryOperation {
             triageRepository.toggleTriageItemCompletion(
                 triageItemId = id,
-                completedAtEpochMillis = maxOf(
-                    System.currentTimeMillis(),
-                    task.createdAtEpochMillis,
-                ),
+                completedAtEpochMillis = maxOf(clock.millis(), task.createdAtEpochMillis),
             )
         }
     }
@@ -138,7 +198,7 @@ class TodayViewModel @Inject constructor(
             return
         }
         _taskInputFailure.value = null
-        val now = System.currentTimeMillis()
+        val now = clock.millis()
         val itemId = UUID.randomUUID().toString()
         val record = TriageRecord(
             item = TriageItem(

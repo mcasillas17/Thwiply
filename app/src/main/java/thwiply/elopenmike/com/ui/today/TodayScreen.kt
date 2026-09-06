@@ -64,16 +64,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import thwiply.elopenmike.com.R
 import thwiply.elopenmike.com.domain.triage.SourceKind
 import thwiply.elopenmike.com.domain.triage.TriageItem
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
@@ -87,11 +93,15 @@ fun TodayScreen(
     val selectedFilter by viewModel.selectedFilter.collectAsState()
     val operationFailure by viewModel.operationFailure.collectAsState()
     val taskInputFailure by viewModel.taskInputFailure.collectAsState()
+    val cleanupWarning by viewModel.cleanupWarning.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showAddDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(viewModel) {
+    // Entry and every resume are cleanup and visibility boundaries: a device that slept
+    // through an expiry must not come back showing an expired notification-derived record.
+    LifecycleResumeEffect(viewModel) {
         viewModel.onTodayEntered()
+        onPauseOrDispose { }
     }
 
     val tasks = (uiState as? TodayUiState.Content)?.tasks.orEmpty()
@@ -161,6 +171,9 @@ fun TodayScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            if (cleanupWarning) {
+                CleanupWarningBanner(onRetry = viewModel::retryCleanup)
+            }
             if (uiState is TodayUiState.Content) {
                 FilterRow(selectedFilter = selectedFilter, onSelect = viewModel::setFilter)
             }
@@ -288,6 +301,43 @@ private fun TaskList(
                 onToggle = { onToggle(task.id) },
                 onDelete = { onDelete(task.id) },
             )
+        }
+    }
+}
+
+/** Nonblocking notice: cleanup failed, records stay usable, and a retry is one tap away. */
+@Composable
+private fun CleanupWarningBanner(onRetry: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, top = 4.dp, end = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                text = stringResource(R.string.today_cleanup_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                // The live region owns the message text, so it has content to announce.
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            )
+            TextButton(onClick = onRetry) {
+                Text(stringResource(R.string.today_cleanup_retry))
+            }
         }
     }
 }

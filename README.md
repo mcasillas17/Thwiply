@@ -28,6 +28,7 @@ LLM inference runs on the Android device. Internet access is used solely to down
 - **Durable Today Tasks:** Manual tasks, completion-state updates, and deletions survive app and database recreation through the repository layer.
 - **Optional Model Setup:** Today and Settings are available without model weights. Enter or resume setup from inside the app; Lab enables inference only when its model and local engine are ready.
 - **Privacy-Minimized Data Foundation:** Versioned Room schemas, explicit migrations, 30-day retention for future notification-derived records, a confirmed delete-all control, and explicit database exclusions from cloud backup and device transfer.
+- **Centralized Retention Cleanup:** One coordinator purges expired notification-derived records at app startup, on Today entry, and once a day in the background; expired records stop being shown even when a delete fails, and manual tasks stay usable.
 - **Real Empty and Failure States:** Today reflects repository-backed `Flow` state instead of hardcoded sample tasks and distinguishes an empty database from a storage failure.
 - **Settings & Theme Manager:** Live support for **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan).
 - **Official Adaptive Branding:** Custom spider-web spinneret icon design with Android 13+ monochrome dynamic theming support.
@@ -144,6 +145,76 @@ flowchart TD
     gated -->|Retry initialization when needed| lab
 ```
 
+### Notification-data retention and cleanup
+
+Notification-derived records expire **30 days after they are created**. Manual tasks never
+expire and this policy never deletes them, rules, or corrections belonging to manual records.
+Editing or completing a record does not shorten, extend, or restart its retention. Notification
+ingestion does not exist yet, so the policy currently applies to migrated or test rows only.
+
+One coordinator owns the policy; every trigger reuses it and runs one delete transaction:
+
+```mermaid
+flowchart LR
+    startup["App startup"] --> coordinator
+    entry["Today entry and Retry cleanup"] --> coordinator
+    periodic["Daily JobScheduler maintenance"] --> coordinator
+    coordinator["Cleanup coordinator: one run at a time"] --> repository["Lifecycle repository: one delete transaction"]
+    repository -->|success| deleted["Expired notification rows deleted"]
+    repository -->|failure| warning["Today shows a nonblocking cleanup warning with Retry"]
+    entry --> read["Today reads records visible as of now"]
+    read --> list["Manual tasks stay listed; expired notification rows stay hidden"]
+```
+
+**Logical expiry and physical deletion are different.** Today reads records against the current
+time, so an expired notification-derived record stops being shown the moment it expires — even
+if the delete has not run yet or failed. A notification record with a missing expiry has unknown
+retention: it is hidden immediately and deleted by cleanup rather than kept forever. Physical
+deletion happens on the next successful cleanup.
+Android may defer or drop deferrable background work, so nothing here promises deletion at the
+exact 30-day timestamp, and none of it is a forensic secure erase: SQLite can retain freed
+pages until they are reused. Settings ▸ **Delete notification data and rules** remains the
+immediate, explicit deletion path; expiry cleanup never invokes it as a fallback.
+
+**Failure behavior.** A cleanup failure never blocks Today: manual tasks stay listed and
+usable, expired notification records stay hidden, and a nonblocking warning offers **Retry
+cleanup**. A record *read* failure is separate and still renders the explicit storage-error
+state rather than an empty list. Cleanup diagnostics are content-free — trigger, outcome,
+operation, failure reason, a deleted count, and — for an unexpected failure — the exception's
+class name as a bounded error code. `ThwiplyAppScope` carries the same bounded record for an
+unexpected failure in background maintenance:
+
+```bash
+adb logcat -s ThwiplyCleanup ThwiplyAppScope
+```
+
+**Periodic maintenance limitations.** Startup registers one platform `JobScheduler` periodic
+job (id `1912`, service `NotificationMaintenanceJobService`) with a one-day interval: at most
+one attempt per day, one delete transaction per run, no network, charging, idle, or persistence
+requirement, and no retry after a failed run — the next daily window is the retry. Repeated
+launches never enqueue a duplicate or restart the interval. The job is not persisted across
+reboot; the next app start re-registers it and runs cleanup itself, so foreground triggers
+remain the reliable path. Force-stopping the app clears its jobs; the next launch registers a
+new one, and Android may run that new period's first window right away. The automated suite
+asserts registration, non-duplication, and the shared cleanup policy, not that Android chose to
+execute a deferred window; one instrumentation test does schedule a real immediate job and
+prove the service reports itself finished. On a debuggable build you can force a run of the
+daily job and read its diagnostics:
+
+```bash
+adb shell cmd jobscheduler run -f thwiply.elopenmike.com 1912
+```
+
+Reproduce the automated coverage locally:
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'thwiply.elopenmike.com.domain.cleanup.*' \
+  --tests 'thwiply.elopenmike.com.ui.today.*' \
+  --tests 'thwiply.elopenmike.com.data.repository.*'
+./gradlew :app:pixel2api36DebugAndroidTest \
+  -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+```
+
 ### Android instrumentation
 
 The full `:app` instrumentation suite runs on the Gradle Managed Device
@@ -214,11 +285,13 @@ cached test outcomes. Gradle manages device creation, clean baseline snapshots,
 headless startup, and shutdown; animations are disabled and only one managed
 device runs at a time. Do not add class selectors to CI: the full suite must run.
 The checker fails on missing reports/classes, inconsistent counts, duplicates,
-errors, assertion failures, or skipped tests. The current suite executes 22
-tests: `ThwiplyDatabaseTest` 8, `ThwiplyMigrationTest` 1,
+errors, assertion failures, or skipped tests. The current suite executes 29
+tests: `ThwiplyDatabaseTest` 12, `ThwiplyMigrationTest` 1,
 `BackupConfigurationTest` 1, `ExampleInstrumentedTest` 1,
-`AppNavigationTest` 9, and `ModelOptionalLaunchTest` 2. The FND-01
-foundation baseline remains 11 tests; FND-02 adds 11 navigation tests.
+`AppNavigationTest` 9, `ModelOptionalLaunchTest` 2,
+`NotificationMaintenanceSchedulerTest` 2, and `TodayCleanupFailureTest` 1. The
+FND-01 foundation baseline remains 11 tests; FND-02 adds 11 navigation tests and
+FND-12 adds 7 retention-cleanup tests.
 
 Local HTML: `app/build/reports/androidTests/managedDevice/debug/allDevices/index.html`.
 XML and per-test logcat:

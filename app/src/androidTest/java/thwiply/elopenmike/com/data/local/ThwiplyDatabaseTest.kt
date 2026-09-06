@@ -72,7 +72,12 @@ class ThwiplyDatabaseTest {
         reopenDatabase()
         assertEquals(
             "Buy milk",
-            database.triageDao().observeTriageRecords().first().single().item.displayTitle,
+            database.triageDao()
+                .observeVisibleTriageRecords(nowEpochMillis = 0)
+                .first()
+                .single()
+                .item
+                .displayTitle,
         )
 
         assertEquals(
@@ -270,6 +275,133 @@ class ThwiplyDatabaseTest {
     }
 
     @Test
+    fun visibleRecordsHideExpiredNotificationsWithoutDeletingManualRows() = runBlocking {
+        val expired = notificationItem("expired", retentionExpiresAtEpochMillis = 199)
+        val boundary = notificationItem("boundary", retentionExpiresAtEpochMillis = 200)
+        val future = notificationItem("future", retentionExpiresAtEpochMillis = 201)
+        val undated = notificationItem("undated", retentionExpiresAtEpochMillis = 0)
+            .copy(retentionExpiresAtEpochMillis = null)
+        val manual = manualItem("manual")
+        listOf(expired, boundary, future, undated, manual).forEachIndexed { index, item ->
+            database.triageDao().insertTriageRecord(
+                item,
+                testDecision("visibility-decision-$index", item.id),
+            )
+        }
+
+        val visible = database.triageDao()
+            .observeVisibleTriageRecords(nowEpochMillis = 200)
+            .first()
+            .map { it.item.id }
+
+        // A missing expiry is treated as unknown and stays hidden, never rendered.
+        assertEquals(setOf("future", "manual"), visible.toSet())
+        // Nothing was deleted: visibility is a read filter, not a purge.
+        assertEquals("expired", database.triageDao().findTriageRecord("expired")?.item?.id)
+        assertEquals("undated", database.triageDao().findTriageRecord("undated")?.item?.id)
+    }
+
+    @Test
+    fun completingANotificationRecordDoesNotExtendItsRetention() = runBlocking {
+        val item = notificationItem("completed-notification", retentionExpiresAtEpochMillis = 500)
+        database.triageDao().insertTriageRecord(
+            item,
+            testDecision("completed-notification-decision", item.id),
+        )
+
+        database.triageDao().toggleTriageItemCompletion(item.id, completedAtEpochMillis = 400)
+        database.triageDao().toggleTriageItemCompletion(item.id, completedAtEpochMillis = 450)
+        reopenDatabase()
+
+        assertEquals(
+            500L,
+            database.triageDao().findTriageRecord(item.id)?.item?.retentionExpiresAtEpochMillis,
+        )
+    }
+
+    @Test
+    fun expiryDeletionRemovesNotificationsWithUnknownRetention() = runBlocking {
+        val undated = notificationItem("undated-purge", retentionExpiresAtEpochMillis = 0)
+            .copy(retentionExpiresAtEpochMillis = null)
+        val future = notificationItem("future-purge", retentionExpiresAtEpochMillis = 500)
+        val manual = manualItem("manual-purge")
+        listOf(undated, future, manual).forEachIndexed { index, item ->
+            database.triageDao().insertTriageRecord(
+                item,
+                testDecision("unknown-retention-decision-$index", item.id),
+            )
+        }
+        val rule = UserRuleEntity(
+            id = "unknown-retention-rule",
+            packageName = "com.example.mail",
+            channelId = null,
+            action = "DEFER",
+            isEnabled = true,
+            createdAtEpochMillis = 100,
+            updatedAtEpochMillis = 100,
+        )
+        database.userRuleDao().upsertRule(rule)
+
+        // Unknown retention is treated as expired rather than retained forever.
+        assertEquals(
+            1,
+            database.dataLifecycleDao().deleteExpiredNotificationData(nowEpochMillis = 200),
+        )
+        reopenDatabase()
+
+        assertNull(database.triageDao().findTriageRecord(undated.id))
+        assertEquals(future.id, database.triageDao().findTriageRecord(future.id)?.item?.id)
+        assertEquals(manual.id, database.triageDao().findTriageRecord(manual.id)?.item?.id)
+        assertEquals(rule.id, database.userRuleDao().observeRules().first().single().id)
+    }
+
+    @Test
+    fun expiryDeletionCascadesChildRowsAndKeepsRulesAndManualDataAcrossReopen() = runBlocking {
+        val expired = notificationItem("expired-parent", retentionExpiresAtEpochMillis = 100)
+        val manual = manualItem("kept-manual")
+        database.triageDao().insertTriageRecord(
+            expired,
+            testDecision("expired-decision", expired.id),
+        )
+        database.triageDao().insertTriageRecord(manual, testDecision("manual-decision", manual.id))
+        val rule = UserRuleEntity(
+            id = "kept-rule",
+            packageName = "com.example.mail",
+            channelId = null,
+            action = "PRIORITIZE",
+            isEnabled = true,
+            createdAtEpochMillis = 100,
+            updatedAtEpochMillis = 100,
+        )
+        database.userRuleDao().upsertRule(rule)
+        database.correctionDao().insertCorrection(
+            UserCorrectionEntity(
+                id = "expired-correction",
+                triageItemId = expired.id,
+                previousCategory = "LATER",
+                correctedCategory = "NOW",
+                createdAtEpochMillis = 100,
+                createdRuleId = rule.id,
+            ),
+        )
+
+        assertEquals(
+            1,
+            database.dataLifecycleDao().deleteExpiredNotificationData(nowEpochMillis = 200),
+        )
+        reopenDatabase()
+
+        assertNull(database.triageDao().findTriageRecord(expired.id))
+        assertEquals(
+            emptyList<UserCorrectionEntity>(),
+            database.correctionDao().observeCorrections(expired.id).first(),
+        )
+        assertEquals(0, decisionCountFor(expired.id))
+        assertEquals(manual.id, database.triageDao().findTriageRecord(manual.id)?.item?.id)
+        assertEquals(rule.id, database.userRuleDao().observeRules().first().single().id)
+    }
+
+    @Test
     fun deleteAllNotificationDataAndRulesPreservesManualRecords() = runBlocking {
         val notification = notificationItem("notification", retentionExpiresAtEpochMillis = 500)
         val manual = manualItem("manual")
@@ -388,6 +520,17 @@ class ThwiplyDatabaseTest {
             assertEquals(expected, actual)
         }
     }
+
+    private fun decisionCountFor(triageItemId: String): Int =
+        database.openHelper.readableDatabase
+            .query(
+                "SELECT COUNT(*) FROM triage_decisions WHERE triage_item_id = ?",
+                arrayOf(triageItemId),
+            )
+            .use { cursor ->
+                cursor.moveToFirst()
+                cursor.getInt(0)
+            }
 
     private fun manualItem(id: String) = TriageItemEntity(
         id = id,

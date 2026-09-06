@@ -6,9 +6,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import thwiply.elopenmike.com.data.local.DEFAULT_NOTIFICATION_RETENTION_MILLIS
 import thwiply.elopenmike.com.data.local.dao.TriageDao
 import thwiply.elopenmike.com.data.local.dao.CorrectionDao
 import thwiply.elopenmike.com.data.local.dao.DataLifecycleDao
@@ -37,12 +39,60 @@ class RoomRepositoriesTest {
         val dao = FakeTriageDao(records = flowOf(listOf(entityRecord())))
         val repository = RoomTriageRepository(dao)
 
-        val result = repository.observeTriageRecords().first()
+        val result = repository.observeVisibleTriageRecords(nowEpochMillis = 200).first()
 
-        val record = (result as RepositoryResult.Success).value.single()
+        val visible = (result as RepositoryResult.Success).value
+        assertEquals(listOf(200L), dao.queryTimes)
+        val record = visible.records.single()
         assertEquals("Buy milk", record.item.displayTitle)
         assertEquals(SourceKind.MANUAL, record.item.source.kind)
         assertEquals(TriageCategory.NOW, record.decision.category)
+        assertNull(visible.nextExpiryAtEpochMillis)
+    }
+
+    @Test
+    fun `visible records report the earliest future notification expiry`() = runBlocking {
+        val dao = FakeTriageDao(
+            records = flowOf(
+                listOf(
+                    notificationEntityRecord(id = "later", retentionExpiresAtEpochMillis = 900),
+                    notificationEntityRecord(id = "sooner", retentionExpiresAtEpochMillis = 400),
+                    entityRecord(),
+                ),
+            ),
+        )
+        val repository = RoomTriageRepository(dao)
+
+        val result = repository.observeVisibleTriageRecords(nowEpochMillis = 200).first()
+
+        assertEquals(
+            400L,
+            (result as RepositoryResult.Success).value.nextExpiryAtEpochMillis,
+        )
+    }
+
+    @Test
+    fun `creating a notification record stores the fixed thirty day retention expiry`() =
+        runBlocking {
+            val dao = FakeTriageDao()
+            val repository = RoomTriageRepository(dao)
+
+            repository.createTriageRecord(notificationDomainRecord(createdAtEpochMillis = 1_000))
+
+            assertEquals(
+                1_000L + DEFAULT_NOTIFICATION_RETENTION_MILLIS,
+                dao.insertedItems.single().retentionExpiresAtEpochMillis,
+            )
+        }
+
+    @Test
+    fun `creating a manual record never sets a retention expiry`() = runBlocking {
+        val dao = FakeTriageDao()
+        val repository = RoomTriageRepository(dao)
+
+        repository.createTriageRecord(domainRecord())
+
+        assertNull(dao.insertedItems.single().retentionExpiresAtEpochMillis)
     }
 
     @Test
@@ -204,6 +254,62 @@ class RoomRepositoriesTest {
         )
     }
 
+    private fun notificationDomainRecord(createdAtEpochMillis: Long): TriageRecord {
+        val item = TriageItem(
+            id = "notification-1",
+            displayTitle = "Call Alex",
+            displaySummary = null,
+            source = SourceReference.notification(
+                packageName = "com.example.messages",
+                appLabel = "Messages",
+                stableKeyHash = "a".repeat(64),
+            ),
+            isHighPriority = false,
+            createdAtEpochMillis = createdAtEpochMillis,
+            dueAtEpochMillis = null,
+            completedAtEpochMillis = null,
+        )
+        return TriageRecord(
+            item = item,
+            decision = TriageDecision(
+                id = "notification-decision-1",
+                triageItemId = item.id,
+                category = TriageCategory.NOW,
+                explanation = "Direct request",
+                origin = DecisionOrigin.ON_DEVICE_MODEL,
+                decidedAtEpochMillis = createdAtEpochMillis,
+            ),
+        )
+    }
+
+    private fun notificationEntityRecord(
+        id: String,
+        retentionExpiresAtEpochMillis: Long,
+    ) = TriageItemWithDecision(
+        item = TriageItemEntity(
+            id = id,
+            displayTitle = "Call Alex",
+            displaySummary = null,
+            sourceKind = "NOTIFICATION",
+            sourcePackageName = "com.example.messages",
+            sourceAppLabel = "Messages",
+            sourceStableKeyHash = "a".repeat(64),
+            isHighPriority = false,
+            createdAtEpochMillis = 100,
+            dueAtEpochMillis = null,
+            completedAtEpochMillis = null,
+            retentionExpiresAtEpochMillis = retentionExpiresAtEpochMillis,
+        ),
+        decision = TriageDecisionEntity(
+            id = "$id-decision",
+            triageItemId = id,
+            category = "NOW",
+            explanation = "Direct request",
+            origin = "ON_DEVICE_MODEL",
+            decidedAtEpochMillis = 100,
+        ),
+    )
+
     private fun entityRecord() = TriageItemWithDecision(
         item = TriageItemEntity(
             id = "item-1",
@@ -233,6 +339,9 @@ class RoomRepositoriesTest {
         private val updateCount: Int = 1,
         private val insertFailure: RuntimeException? = null,
     ) : TriageDao {
+        val queryTimes = mutableListOf<Long>()
+        val insertedItems = mutableListOf<TriageItemEntity>()
+
         override suspend fun insertTriageItem(item: TriageItemEntity) = Unit
 
         override suspend fun insertTriageDecision(decision: TriageDecisionEntity) = Unit
@@ -242,9 +351,15 @@ class RoomRepositoriesTest {
             decision: TriageDecisionEntity,
         ) {
             insertFailure?.let { throw it }
+            insertedItems += item
         }
 
-        override fun observeTriageRecords(): Flow<List<TriageItemWithDecision>> = records
+        override fun observeVisibleTriageRecords(
+            nowEpochMillis: Long,
+        ): Flow<List<TriageItemWithDecision>> {
+            queryTimes += nowEpochMillis
+            return records
+        }
 
         override suspend fun findTriageRecord(triageItemId: String): TriageItemWithDecision? = null
 

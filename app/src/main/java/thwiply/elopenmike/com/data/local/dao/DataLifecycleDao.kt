@@ -7,12 +7,17 @@ import thwiply.elopenmike.com.domain.triage.NotificationDataDeletion
 
 @Dao
 interface DataLifecycleDao {
+    /**
+     * Deletes notification-derived rows that are past retention. A missing expiry is unknown
+     * retention, which the read filter already hides, so it is deleted rather than kept
+     * forever. Manual rows and rules are never touched here.
+     */
     @Query(
         """
         DELETE FROM triage_items
         WHERE source_kind = 'NOTIFICATION'
-          AND retention_expires_at_epoch_millis IS NOT NULL
-          AND retention_expires_at_epoch_millis <= :nowEpochMillis
+          AND (retention_expires_at_epoch_millis IS NULL
+               OR retention_expires_at_epoch_millis <= :nowEpochMillis)
         """,
     )
     suspend fun deleteExpiredNotificationData(nowEpochMillis: Long): Int

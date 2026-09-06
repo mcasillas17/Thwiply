@@ -3,20 +3,32 @@ package thwiply.elopenmike.com.data.repository
 import kotlinx.coroutines.flow.Flow
 import thwiply.elopenmike.com.data.local.dao.TriageDao
 import thwiply.elopenmike.com.domain.triage.RepositoryResult
+import thwiply.elopenmike.com.domain.triage.SourceKind
 import thwiply.elopenmike.com.domain.triage.StorageOperation
 import thwiply.elopenmike.com.domain.triage.TriageItem
 import thwiply.elopenmike.com.domain.triage.TriageRecord
 import thwiply.elopenmike.com.domain.triage.TriageRepository
+import thwiply.elopenmike.com.domain.triage.VisibleTriageRecords
 import javax.inject.Inject
 
 class RoomTriageRepository @Inject constructor(
     private val triageDao: TriageDao,
 ) : TriageRepository {
-    override fun observeTriageRecords(): Flow<RepositoryResult<List<TriageRecord>>> =
-        observeStorage(
-            operation = StorageOperation.OBSERVE_TRIAGE,
-            source = triageDao.observeTriageRecords(),
-        ) { records -> records.map { it.toDomain() } }
+    override fun observeVisibleTriageRecords(
+        nowEpochMillis: Long,
+    ): Flow<RepositoryResult<VisibleTriageRecords>> = observeStorage(
+        operation = StorageOperation.OBSERVE_TRIAGE,
+        source = triageDao.observeVisibleTriageRecords(nowEpochMillis),
+    ) { rows ->
+        VisibleTriageRecords(
+            records = rows.map { it.toDomain() },
+            // Every notification row the DAO returned already expires after nowEpochMillis.
+            nextExpiryAtEpochMillis = rows
+                .filter { it.item.sourceKind == SourceKind.NOTIFICATION.name }
+                .mapNotNull { it.item.retentionExpiresAtEpochMillis }
+                .minOrNull(),
+        )
+    }
 
     override suspend fun createTriageRecord(
         record: TriageRecord,

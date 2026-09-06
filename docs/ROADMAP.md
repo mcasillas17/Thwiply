@@ -245,6 +245,10 @@ FND-12 evidence was recorded on 2026-09-06:
   service; and three process restarts left exactly one `#u0a215/1912` periodic job
   whose next window kept counting down instead of resetting.
 
+The nonblocking warning is captured in both themes at
+[`docs/images/`](images/), from a debug build with the retention delete forced to
+fail and a synthetic manual task; no real notification data appears in either image.
+
 Limitations recorded with this task: Android decides when a deferrable job runs,
 so physical deletion is eventual and not promised at the exact 30-day timestamp,
 and nothing here is a forensic secure erase. The job is not persisted across

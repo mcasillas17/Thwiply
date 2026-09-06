@@ -27,9 +27,24 @@ interface TriageDao {
         insertTriageDecision(decision)
     }
 
+    /**
+     * Records a user may see. Notification-derived rows disappear at their retention cutoff
+     * even when the physical delete has not run yet, and a notification row with a missing
+     * expiry is treated as unknown and stays hidden. Manual rows never expire.
+     */
     @Transaction
-    @Query("SELECT * FROM triage_items ORDER BY created_at_epoch_millis DESC, id ASC")
-    fun observeTriageRecords(): Flow<List<TriageItemWithDecision>>
+    @Query(
+        """
+        SELECT * FROM triage_items
+        WHERE source_kind != 'NOTIFICATION'
+           OR (retention_expires_at_epoch_millis IS NOT NULL
+               AND retention_expires_at_epoch_millis > :nowEpochMillis)
+        ORDER BY created_at_epoch_millis DESC, id ASC
+        """,
+    )
+    fun observeVisibleTriageRecords(
+        nowEpochMillis: Long,
+    ): Flow<List<TriageItemWithDecision>>
 
     @Transaction
     @Query("SELECT * FROM triage_items WHERE id = :triageItemId")

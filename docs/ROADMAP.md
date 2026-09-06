@@ -1,6 +1,6 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01 and FND-02 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, and FND-12 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
 **Last updated:** 2026-09-06
 
 ## Product direction
@@ -37,7 +37,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Notification ingestion | Not started | No notification-access state, app allowlist, `NotificationListenerService`, normalizer, or ingestion queue exists |
 | Structured triage pipeline | Not started | Lab output is not connected to deterministic rules, a strict output schema, or persisted product state |
 | Explanations, corrections, and rules | Contracts and storage only | Decision explanations, correction rows, and rule rows exist; Today drops the category, and no correction/rule workflow consumes them |
-| Notification-data lifecycle | Phase 1 foundation delivered; hardening open | 30-day expiry, purge on Today entry, and confirmed delete-all exist; purge failure can hide manual data and inactive-app cleanup is not scheduled |
+| Notification-data lifecycle | FND-12 complete | One coordinator purges expired notification-derived records at startup, Today entry, and a uniquely scheduled daily job; expired rows stay hidden even when a delete fails, and a cleanup failure leaves manual tasks visible and usable behind a nonblocking warning |
 | Alpha distribution | Workflow delivered; runtime proof open | Signed, minified, per-ABI prereleases, checksums, and a 32 MiB arm64 size gate exist; the minified LiteRT-LM path lacks a recorded device smoke gate |
 | Instrumentation CI | FND-01 complete | A required, separate API 36 managed-emulator job executes Room reopen, migration, and backup tests; assertion-failure propagation and restored success are recorded below |
 | Android quality | Hardening open | Lifecycle-aware collection, target SDK 36 insets, string resources, accessibility semantics/touch targets, and adaptive-layout evidence remain open |
@@ -95,8 +95,8 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. `FND-01` and `FND-02` are complete. Start `FND-03` through `FND-05`,
-   `FND-07`, `FND-12`, and `FND-14` in parallel where ownership permits.
+1. `FND-01`, `FND-02`, and `FND-12` are complete. Start `FND-03` through
+   `FND-05`, `FND-07`, and `FND-14` in parallel where ownership permits.
 2. Complete `FND-06` after its resource prerequisite and complete the model and
    Lab chain `FND-08` through `FND-11`.
 3. Prove the shipped minified path with `FND-13`.
@@ -123,7 +123,7 @@ These decisions are prerequisites, not open implementation options:
 | FND-09 | Blocked | Define single-engine ownership, off-main initialization, cancellation, stop, close, and arbitration between user-initiated Lab work and product triage. Never swallow coroutine cancellation or leak a conversation/native engine. | FND-08 | Fake-engine tests prove cancel/stop closes conversations, the mutex is released, user-visible states remain distinguishable, and one engine is active per process. |
 | FND-10 | Blocked | Make model download single-flight and resumable with validated range continuity, bounded/throttled progress, explicit cancellation, disk-space preflight, metered-network confirmation, timeouts, and user-initiated removal. | FND-07, FND-08 | Slow, partial, ignored-range, corrupt, low-space, metered, concurrent, cancel, restart, and remove cases pass without activating unverified bytes or reporting failure as success. |
 | FND-11 | Blocked | Correct Lab metrics and behavior: count characters or verified runtime tokens, bound prompt/output presentation, expose busy/stop states, reuse the engine arbitration contract, and keep Lab output separate from product persistence. | FND-09 | Metric tests use known streams and elapsed time; UI never labels chunks as tokens; Lab cancellation and contention states are visible and recoverable. |
-| FND-12 | Ready | Centralize notification-data cleanup at app startup, Today entry, and active ingestion boundaries; make purge failure diagnostic but never hide manual rows; add at most one best-effort local cleanup run per day with no network or model work. | None | Expired notification-derived records are purged on the next eligible boundary; periodic work is uniquely scheduled and bounded to one delete transaction per run; injected purge failure still renders manual tasks. |
+| FND-12 | Complete | Centralize notification-data cleanup at app startup, Today entry, and active ingestion boundaries; make purge failure diagnostic but never hide manual rows; add at most one best-effort local cleanup run per day with no network or model work. | None | One coordinator serves startup, Today entry, and a single daily `JobScheduler` job, one delete transaction per run; expired rows are also excluded from reads, so an injected purge failure keeps manual tasks visible and usable behind a nonblocking warning. See the FND-12 evidence below. |
 | FND-13 | Blocked | Audit packaged consumer rules, add only demonstrated R8/serialization/JNI rules, and run the minified alpha on an emulator and representative arm64 device through launch, model verification, initialization, and one generation. | FND-01, FND-08, FND-09, FND-10, FND-11 | The exact signed/minified variant launches and infers on device; mapping/keep evidence is archived; the arm64 size gate and per-ABI checks remain green. |
 | FND-14 | Ready | Repair release truth and maintenance policy: add the declared MIT license, display `BuildConfig.VERSION_NAME`, document supported toolchain/dependency baselines, remove or justify unused dependencies, and keep security maintenance separate from product phase status. | None | README license link resolves; installed build reports the packaged version; dependency verification and latest `main` CI are green; prerelease toolchain use has an explicit rationale or is replaced with evidence. |
 
@@ -200,6 +200,61 @@ physical-device proof. `FND-14` remains **Ready**, separate from FND-02: the roo
 LICENSE is still absent and Settings still displays `1.0.0 (Alpha)` rather than
 the packaged version. Owner provisioning/approval and suitable hardware are
 required before final smoke; all applicable release gates remain independent.
+
+FND-12 evidence was recorded on 2026-09-06:
+
+- One `NotificationDataCleanupCoordinator` owns the retention policy. Application
+  startup, Today entry, the Today **Retry cleanup** action, and the periodic job
+  all call it, and overlapping callers share a single in-flight delete
+  transaction. It reuses the existing lifecycle repository and DAO; no second
+  database, retention policy, or delete-all fallback was added.
+- Reads are time-scoped: `TriageDao.observeVisibleTriageRecords` hides
+  notification-derived rows at or past their cutoff, so a failed physical delete
+  never exposes expired data. A missing expiry is unknown retention: such a row is
+  hidden and deleted by cleanup rather than retained indefinitely. A record-read
+  failure still renders the explicit storage error rather than an empty list.
+- Today re-reads and re-runs cleanup on entry and on every resume, so a device that
+  slept past a cutoff does not come back showing an expired record.
+- The API 36 Google APIs ARM64 managed-device suite executed **29 tests**
+  (22 existing and 7 new) with no failures or skips.
+  [`TodayCleanupFailureTest`](../app/src/androidTest/java/thwiply/elopenmike/com/data/cleanup/TodayCleanupFailureTest.kt)
+  drives real Compose Today over real Room with an injected purge failure: the
+  manual task renders, a new task can still be added, the expired notification
+  row is hidden while still present in the database, and **Retry cleanup**
+  clears the warning and physically deletes the row.
+  [`ThwiplyDatabaseTest`](../app/src/androidTest/java/thwiply/elopenmike/com/data/local/ThwiplyDatabaseTest.kt)
+  covers visibility before, at, and after the cutoff, missing-expiry handling in
+  both the read filter and the purge, unchanged retention across completion
+  toggles, and expiry deletion cascading decisions and corrections while
+  preserving rules and manual rows across reopen.
+  [`NotificationMaintenanceSchedulerTest`](../app/src/androidTest/java/thwiply/elopenmike/com/data/cleanup/NotificationMaintenanceSchedulerTest.kt)
+  asserts one periodic job, a one-day interval, and no network, charging, idle,
+  or persistence requirement, and schedules a real immediate job so the platform
+  drives the service: an expired synthetic row is purged and the job reports
+  itself finished. Removing either the cleanup call or the completion call was
+  confirmed to fail that test.
+- The JVM suite executed **68 tests** with no failures, errors, or skips, using an
+  injected `java.time.Clock`. New coverage includes trigger parity, coalescing,
+  typed purge failure, recovery after a transient failure, cancellation that never
+  becomes success, the nonblocking Today warning, cutoff-time reads, and a single
+  data-driven refresh when a visible record expires while Today is open.
+- `verifyBuildscriptBouncyCastle test lint assembleDebug` passed; lint reported no
+  errors. On an API 36 ARM64 emulator the installed debug build logged
+  content-free `APP_STARTUP`, `TODAY_ENTRY`, and `PERIODIC_MAINTENANCE` outcomes;
+  `cmd jobscheduler run -f thwiply.elopenmike.com 1912` executed the real job
+  service; and three process restarts left exactly one `#u0a215/1912` periodic job
+  whose next window kept counting down instead of resetting.
+
+Limitations recorded with this task: Android decides when a deferrable job runs,
+so physical deletion is eventual and not promised at the exact 30-day timestamp,
+and nothing here is a forensic secure erase. The job is not persisted across
+reboot; the next launch re-registers it and cleans up itself. Force-stopping the
+app clears its jobs, and the reschedule that follows may run its first window
+immediately. Notification ingestion still does not exist: the coordinator is the
+reusable entry point for it, and no listener, queue, or simulated ingestion
+trigger was added. `PILOT-05` remains **Blocked** on its other prerequisites, and
+no other foundation task is claimed by this work. See
+[retention and cleanup guidance](../README.md#notification-data-retention-and-cleanup).
 
 ### Phase 2 - consent and bounded notification ingestion
 

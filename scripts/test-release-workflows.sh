@@ -128,9 +128,12 @@ assert all(
 ), "all actions must be SHA pinned"
 classes = [
     "thwiply.elopenmike.com.BackupConfigurationTest",
+    "thwiply.elopenmike.com.data.cleanup.NotificationMaintenanceSchedulerTest",
+    "thwiply.elopenmike.com.data.cleanup.TodayCleanupFailureTest",
     "thwiply.elopenmike.com.data.local.ThwiplyDatabaseTest",
     "thwiply.elopenmike.com.data.local.ThwiplyMigrationTest",
 ]
+count = len(classes)
 
 def report(names=classes, child="", attributes="", extra_cases=""):
     cases = "".join(
@@ -140,7 +143,7 @@ def report(names=classes, child="", attributes="", extra_cases=""):
     total = len(names) + bool(extra_cases)
     return f'<testsuite tests="{total}" {attributes}>{cases}{extra_cases}</testsuite>'
 
-def aggregate(attributes='tests="3"'):
+def aggregate(attributes=f'tests="{count}"'):
     suites = "".join(report([name]) for name in classes)
     return f'<testsuites {attributes}>{suites}</testsuites>'
 
@@ -155,15 +158,16 @@ fixtures = [
     ("suite failure", report(attributes='failures="1"'), False),
     ("suite skips", report(attributes='skipped="1"'), False),
     ("suite errors", report(attributes='errors="1"'), False),
-    ("inconsistent count", report().replace('tests="3"', 'tests="4"'), False),
+    ("inconsistent count",
+     report().replace(f'tests="{count}"', f'tests="{count + 1}"'), False),
     ("duplicate tests", report(classes + classes), False),
     ("unrelated failing test", report(extra_cases=
      '<testcase classname="FutureServiceTest" name="test"><failure/></testcase>'), False),
     ("real multi-suite shape", aggregate(), True),
-    ("aggregate failures", aggregate('tests="3" failures="1"'), False),
-    ("aggregate errors", aggregate('tests="3" errors="1"'), False),
-    ("aggregate skips", aggregate('tests="3" skipped="1"'), False),
-    ("aggregate count mismatch", aggregate('tests="4"'), False),
+    ("aggregate failures", aggregate(f'tests="{count}" failures="1"'), False),
+    ("aggregate errors", aggregate(f'tests="{count}" errors="1"'), False),
+    ("aggregate skips", aggregate(f'tests="{count}" skipped="1"'), False),
+    ("aggregate count mismatch", aggregate(f'tests="{count + 1}"'), False),
     ("missing test identity", report().replace('name="test"', 'name=""'), False),
     ("malformed XML", "<testsuite", False),
 ]

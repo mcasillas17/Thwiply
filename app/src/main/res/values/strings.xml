@@ -23,4 +23,6 @@
     <string name="lab_output_unavailable">Inference is unavailable until a model is installed and the local engine is ready.</string>
     <string name="lab_ready">Model ready. Tap Thwip Test to run inference on this device.</string>
     <string name="lab_manual_available">Today tasks and Settings remain available.</string>
+    <string name="today_cleanup_warning">Thwiply couldn\'t remove expired notification data. Expired items stay hidden and your tasks are unaffected.</string>
+    <string name="today_cleanup_retry">Retry cleanup</string>
 </resources>

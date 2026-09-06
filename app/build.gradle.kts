@@ -76,6 +76,13 @@ android {
     }
     testOptions {
         animationsDisabled = true
+        unitTests {
+            // Needed because unit-tested code calls android.util.Log. This switch is
+            // source-set wide: every android.jar stub returns a default instead of throwing
+            // "not mocked", so a unit test reaching another framework API sees false/null/0.
+            // Keep framework use out of unit-tested production code beyond diagnostics.
+            isReturnDefaultValues = true
+        }
         managedDevices {
             localDevices {
                 create("pixel2api36") {
@@ -106,6 +113,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     
     // Hilt
     implementation(libs.hilt.android)

@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 
 REQUIRED_CLASSES = {
     "thwiply.elopenmike.com.BackupConfigurationTest",
+    "thwiply.elopenmike.com.data.cleanup.NotificationMaintenanceSchedulerTest",
+    "thwiply.elopenmike.com.data.cleanup.TodayCleanupFailureTest",
     "thwiply.elopenmike.com.data.local.ThwiplyDatabaseTest",
     "thwiply.elopenmike.com.data.local.ThwiplyMigrationTest",
 }

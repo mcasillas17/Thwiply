@@ -10,6 +10,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.security.MessageDigest
+import java.time.Clock
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import androidx.lifecycle.ViewModel
@@ -20,6 +21,7 @@ import okhttp3.OkHttpClient
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
+import thwiply.elopenmike.com.domain.cleanup.NotificationDataCleanupCoordinator
 import thwiply.elopenmike.com.data.local.ThwiplyDatabase
 import thwiply.elopenmike.com.data.repository.*
 import thwiply.elopenmike.com.llm.engine.*
@@ -45,12 +47,15 @@ class AppNavigationTest {
     @Volatile private var generations = 0
     private val viewModels = mutableListOf<ViewModel>()
     private var initializationGate: CountDownLatch? = null
+    private val clock: Clock = Clock.systemUTC()
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @After fun tearDown() {
         initializationGate?.countDown()
         compose.runOnIdle { viewModels.forEach { it.viewModelScope.cancel() } }
         if (::database.isInitialized) database.close()
         if (::modelDirectory.isInitialized) modelDirectory.deleteRecursively()
+        applicationScope.cancel()
     }
 
     @Test fun missingModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("missing")
@@ -171,7 +176,11 @@ class AppNavigationTest {
         val models = ModelManager(modelDirectory, OkHttpClient(), listOf(preset))
         database = Room.inMemoryDatabaseBuilder(context, ThwiplyDatabase::class.java).build()
         val lifecycle = RoomNotificationDataLifecycleRepository(database.dataLifecycleDao())
-        val today = TodayViewModel(RoomTriageRepository(database.triageDao()), lifecycle)
+        val today = TodayViewModel(
+            RoomTriageRepository(database.triageDao()),
+            NotificationDataCleanupCoordinator(lifecycle, clock, applicationScope),
+            clock,
+        )
         val settings = SettingsViewModel(ThemeManager(), models)
         val deletion = NotificationDataSettingsViewModel(lifecycle)
         val engine = LlmEngineManager {

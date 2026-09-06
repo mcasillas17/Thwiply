@@ -17,6 +17,10 @@ jobs:
     name: Validate, sign, and publish
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Same protected environment as the preflight workflow, so the repository
+    # owner has one place to require review before a run reads the signing
+    # secrets and publishes.
+    environment: alpha-signing
     env:
       MAX_ARM64_APK_BYTES: "33554432"
 
@@ -69,25 +73,36 @@ jobs:
           ALPHA_KEYSTORE_PASSWORD: ${{ secrets.ALPHA_KEYSTORE_PASSWORD }}
           ALPHA_KEY_ALIAS: ${{ secrets.ALPHA_KEY_ALIAS }}
           ALPHA_KEY_PASSWORD: ${{ secrets.ALPHA_KEY_PASSWORD }}
+          ALPHA_SIGNING_CERT_SHA256: ${{ vars.ALPHA_SIGNING_CERT_SHA256 }}
         run: |
           set -euo pipefail
 
-          [[ -n "$ALPHA_KEYSTORE_BASE64" ]] || {
-            echo "Missing ALPHA_KEYSTORE_BASE64" >&2
-            exit 1
-          }
-          [[ -n "$ALPHA_KEYSTORE_PASSWORD" ]] || {
-            echo "Missing ALPHA_KEYSTORE_PASSWORD" >&2
-            exit 1
-          }
-          [[ -n "$ALPHA_KEY_ALIAS" ]] || {
-            echo "Missing ALPHA_KEY_ALIAS" >&2
-            exit 1
-          }
-          [[ -n "$ALPHA_KEY_PASSWORD" ]] || {
-            echo "Missing ALPHA_KEY_PASSWORD" >&2
-            exit 1
-          }
+          missing=0
+          for name in \
+            ALPHA_KEYSTORE_BASE64 \
+            ALPHA_KEYSTORE_PASSWORD \
+            ALPHA_KEY_ALIAS \
+            ALPHA_KEY_PASSWORD
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing $name" >&2
+              missing=1
+            fi
+          done
+
+          # The expected certificate fingerprint is public metadata, not a
+          # secret. Pinning it is what stops a wrong, rotated, or substituted
+          # keystore from silently publishing a release testers cannot upgrade.
+          if [[ -z "$ALPHA_SIGNING_CERT_SHA256" ]]; then
+            echo "Missing repository variable ALPHA_SIGNING_CERT_SHA256" >&2
+            echo "Read the expected fingerprint from the offline keystore with" >&2
+            echo "'keytool -list -v -keystore <keystore>.p12 -storetype PKCS12'," >&2
+            echo "confirm it against a report-only run of the Alpha release" >&2
+            echo "preflight workflow, then set the variable." >&2
+            missing=1
+          fi
+
+          ((missing == 0))
 
       - name: Test, lint, and build arm64 alpha
         run: |
@@ -143,12 +158,16 @@ jobs:
           ALPHA_KEYSTORE_PASSWORD: ${{ secrets.ALPHA_KEYSTORE_PASSWORD }}
           ALPHA_KEY_ALIAS: ${{ secrets.ALPHA_KEY_ALIAS }}
           ALPHA_KEY_PASSWORD: ${{ secrets.ALPHA_KEY_PASSWORD }}
+          ALPHA_SIGNING_CERT_SHA256: ${{ vars.ALPHA_SIGNING_CERT_SHA256 }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
           keystore_path="$RUNNER_TEMP/thwiply-alpha-signing.p12"
+          # Also clean up on the signals the runner uses to cancel a job.
           trap 'rm -f "$keystore_path"' EXIT
+          trap 'rm -f "$keystore_path"; exit 143' INT TERM
+          umask 077
           printf '%s' "$ALPHA_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           chmod 600 "$keystore_path"
 
@@ -161,17 +180,22 @@ jobs:
               sort -V |
               tail -n 1
           )"
-          apksigner="$ANDROID_HOME/build-tools/$build_tools_version/apksigner"
-          if [[ ! -x "$apksigner" ]]; then
-            echo "Android apksigner not found: $apksigner" >&2
-            exit 1
-          fi
+          build_tools="$ANDROID_HOME/build-tools/$build_tools_version"
+          for tool in apksigner aapt2; do
+            if [[ ! -x "$build_tools/$tool" ]]; then
+              echo "Android $tool not found: $build_tools/$tool" >&2
+              exit 1
+            fi
+          done
+          apksigner="$build_tools/apksigner"
 
           release_dir="$RUNNER_TEMP/release-assets"
           mkdir -p "$release_dir"
           arm64_signed="$release_dir/thwiply-${TAG_NAME}-arm64-v8a.apk"
           x86_signed="$release_dir/thwiply-${TAG_NAME}-x86_64-emulator.apk"
 
+          report="$RUNNER_TEMP/apksigner-report.txt"
+          : > "$report"
           for artifact in \
             "$ARM64_UNSIGNED_PATH:$arm64_signed" \
             "$X86_UNSIGNED_PATH:$x86_signed"
@@ -186,9 +210,10 @@ jobs:
               --key-pass env:ALPHA_KEY_PASSWORD \
               --out "$signed_path" \
               "$unsigned_path"
-            "$apksigner" verify --verbose --print-certs "$signed_path"
+            "$apksigner" verify --verbose --print-certs "$signed_path" | tee -a "$report"
           done
 
+          bash scripts/verify-apk-certificate.sh "$report" "$ALPHA_SIGNING_CERT_SHA256"
           bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"
 
           checksum_path="$release_dir/SHA256SUMS"
@@ -200,9 +225,19 @@ jobs:
               > "$(basename "$checksum_path")"
           )
 
+          printf 'BUILD_TOOLS_DIR=%s\n' "$build_tools" >> "$GITHUB_ENV"
           printf 'ARM64_SIGNED_PATH=%s\n' "$arm64_signed" >> "$GITHUB_ENV"
           printf 'X86_SIGNED_PATH=%s\n' "$x86_signed" >> "$GITHUB_ENV"
           printf 'CHECKSUM_PATH=%s\n' "$checksum_path" >> "$GITHUB_ENV"
+
+      - name: Verify packaged version and per-ABI native code
+        run: |
+          set -euo pipefail
+
+          bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \
+            "$ARM64_SIGNED_PATH" arm64-v8a "$VERSION_CODE" "$VERSION_NAME"
+          bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \
+            "$X86_SIGNED_PATH" x86_64 "$VERSION_CODE" "$VERSION_NAME"
 
       - name: Create GitHub prerelease
         env:

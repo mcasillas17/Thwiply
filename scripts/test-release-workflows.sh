@@ -5,6 +5,7 @@ set -u
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ci_workflow="$repo_root/.github/workflows/ci.yml"
 release_workflow="$repo_root/.github/workflows/release.yml"
+preflight_workflow="$repo_root/.github/workflows/release-preflight.yml"
 passed=0
 failed=0
 
@@ -18,6 +19,19 @@ require_text() {
   else
     printf "FAIL: %s (missing '%s')\n" "$name" "$text" >&2
     failed=$((failed + 1))
+  fi
+}
+
+reject_regex() {
+  local name="$1"
+  local file="$2"
+  local pattern="$3"
+  if grep -Eq -- "$pattern" "$file"; then
+    printf "FAIL: %s (matched '%s')\n" "$name" "$pattern" >&2
+    failed=$((failed + 1))
+  else
+    printf 'PASS: %s\n' "$name"
+    passed=$((passed + 1))
   fi
 }
 
@@ -57,9 +71,13 @@ require_text "CI retains failure diagnostics" "$ci_workflow" \
   "if: always()"
 require_text "CI runs workflow regression checks" "$ci_workflow" \
   "bash scripts/test-release-workflows.sh"
+require_text "CI runs the signing-certificate checks" "$ci_workflow" \
+  "bash scripts/test-verify-apk-certificate.sh"
+require_text "CI runs the packaged-identity checks" "$ci_workflow" \
+  "bash scripts/test-verify-apk-identity.sh"
 reject_text "CI cannot ignore failures" "$ci_workflow" "continue-on-error"
 reject_text "CI cannot use privileged PR triggers" "$ci_workflow" "pull_request_target"
-reject_text "CI cannot use signing secrets" "$ci_workflow" 'secrets.'
+reject_regex "CI cannot use signing secrets" "$ci_workflow" 'secrets[.[]'
 require_text "CI provisions the emulator explicitly" "$ci_workflow" \
   '--install "emulator" "platform-tools"'
 require_text "CI installs the emulator host library" "$ci_workflow" \
@@ -182,8 +200,8 @@ require_text "release verifies APK signatures" "$release_workflow" \
   "verify --verbose --print-certs"
 require_text "release publishes checksums" "$release_workflow" \
   "SHA256SUMS"
-require_text "release enforces the APK size budget" "$release_workflow" \
-  "scripts/check-apk-size.sh"
+require_text "release enforces the APK size budget on arm64" "$release_workflow" \
+  'bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"'
 require_text "release pins the ephemeral-signing cutoff" "$release_workflow" \
   "v1.0.0-alpha.3 or earlier"
 reject_text "release does not claim every prior alpha used ephemeral signing" "$release_workflow" \
@@ -196,6 +214,321 @@ reject_text "release no longer assembles debug" "$release_workflow" \
   "assembleDebug"
 reject_text "release no longer publishes debug APK names" "$release_workflow" \
   "debug.apk"
+
+require_text "release pins the signing certificate identity" "$release_workflow" \
+  'scripts/verify-apk-certificate.sh "$report" "$ALPHA_SIGNING_CERT_SHA256"'
+require_text "release requires the pinned fingerprint variable" "$release_workflow" \
+  "vars.ALPHA_SIGNING_CERT_SHA256"
+require_text "release runs in the protected signing environment" "$release_workflow" \
+  "environment: alpha-signing"
+require_text "release removes the keystore on exit" "$release_workflow" \
+  "trap 'rm -f \"\$keystore_path\"' EXIT"
+require_text "release aborts and cleans up on cancellation" "$release_workflow" \
+  "trap 'rm -f \"\$keystore_path\"; exit 143' INT TERM"
+reject_text "release never uploads build artifacts" "$release_workflow" \
+  "upload-artifact"
+reject_text "release cannot ignore failures" "$release_workflow" "continue-on-error"
+
+require_text "a non-publishing candidate path exists" "$preflight_workflow" \
+  "name: Alpha release preflight"
+require_text "preflight only runs on manual dispatch" "$preflight_workflow" \
+  "workflow_dispatch"
+reject_text "preflight cannot be triggered by pull requests" "$preflight_workflow" \
+  "pull_request"
+reject_text "preflight cannot be triggered by a tag push" "$preflight_workflow" \
+  "tags:"
+require_text "preflight holds a read-only token" "$preflight_workflow" \
+  "permissions:
+  contents: read"
+reject_text "preflight cannot obtain write access" "$preflight_workflow" \
+  "contents: write"
+reject_text "preflight cannot publish a release" "$preflight_workflow" \
+  "gh release"
+reject_text "preflight cannot ignore failures" "$preflight_workflow" \
+  "continue-on-error"
+require_text "preflight restricts signing to revisions already in main" \
+  "$preflight_workflow" "merge-base --is-ancestor"
+require_text "preflight runs in the protected signing environment" \
+  "$preflight_workflow" "environment: alpha-signing"
+require_text "preflight builds arm64" "$preflight_workflow" \
+  "-Pthwiply.abi=arm64-v8a"
+require_text "preflight builds x86_64" "$preflight_workflow" \
+  "-Pthwiply.abi=x86_64"
+require_text "preflight uses the 32 MiB arm64 budget" "$preflight_workflow" \
+  'MAX_ARM64_APK_BYTES: "33554432"'
+reject_text "preflight rejects the obsolete 80 MiB budget" "$preflight_workflow" \
+  "83886080"
+require_text "preflight enforces the APK size budget on arm64" "$preflight_workflow" \
+  'bash scripts/check-apk-size.sh "$arm64_signed" "$MAX_ARM64_APK_BYTES"'
+require_text "preflight verifies APK signatures" "$preflight_workflow" \
+  "verify --verbose --print-certs"
+require_text "preflight pins the persistent certificate identity" \
+  "$preflight_workflow" \
+  'bash scripts/verify-apk-certificate.sh "$report" "$ALPHA_SIGNING_CERT_SHA256"'
+require_text "preflight publishes candidate checksums" "$preflight_workflow" \
+  "SHA256SUMS"
+require_text "preflight records candidate provenance" "$preflight_workflow" \
+  "CANDIDATE.txt"
+require_text "preflight labels test-key builds" "$preflight_workflow" \
+  "TEST-KEY"
+require_text "preflight removes the keystore on exit" \
+  "$preflight_workflow" "trap 'rm -f \"\$keystore_path\"' EXIT"
+require_text "preflight aborts and cleans up on cancellation" \
+  "$preflight_workflow" "trap 'rm -f \"\$keystore_path\"; exit 143' INT TERM"
+require_text "preflight proves no signing material survives" "$preflight_workflow" \
+  "Confirm no signing material remains"
+require_text "preflight checks the upload before it happens" "$preflight_workflow" \
+  "Confirm the upload carries no signing material"
+require_text "preflight verifies the packaged version and ABI" "$preflight_workflow" \
+  "Verify packaged version and per-ABI native code"
+require_text "preflight signs with protected password inputs" "$preflight_workflow" \
+  "--ks-pass env:KEYSTORE_PASSWORD"
+reject_regex "preflight never passes a password on the command line" \
+  "$preflight_workflow" '[-][-](ks|key)-pass +pass:'
+reject_regex "preflight keeps checkout credentials off disk" \
+  "$preflight_workflow" 'persist-credentials: true'
+reject_regex "release keeps checkout credentials off disk" \
+  "$release_workflow" 'persist-credentials: true'
+require_text "release verifies the packaged version and ABI" "$release_workflow" \
+  "Verify packaged version and per-ABI native code"
+
+if python3 - "$release_workflow" "$preflight_workflow" "$ci_workflow" <<'PY'
+import pathlib
+import re
+import sys
+
+release, preflight, ci = (pathlib.Path(a).read_text() for a in sys.argv[1:4])
+
+for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci)):
+    assert all(
+        re.fullmatch(r"[\w./-]+@[0-9a-f]{40}", action)
+        for action in re.findall(r"uses: (\S+)", workflow)
+    ), f"{name}: all actions must be SHA pinned"
+
+# The decoded keystore lives in the runner temp directory. The candidate upload
+# must never be widened to a directory that could contain it.
+upload = re.search(
+    r"^      - name: Upload candidate artifacts\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+paths = re.search(r"path: \|\n(.*?)(?=\n      -|\Z)", upload, re.DOTALL)[1]
+assert paths.strip(), "preflight must upload an explicit file list"
+for line in (entry.strip() for entry in paths.strip().splitlines()):
+    assert line.startswith("${{ env.CANDIDATE_DIR }}/"), f"unexpected upload path: {line}"
+    assert not line.endswith(("/*", "/**")), f"upload path too broad: {line}"
+    assert not re.search(r"\.(p12|jks|keystore)$", line), f"signing material upload: {line}"
+    assert ".." not in line, f"upload path escapes the candidate directory: {line}"
+
+# The keystore must be written outside whatever directory gets uploaded.
+sign = re.search(
+    r"^      - name: Sign and verify candidate APKs\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+keystore = re.search(r'keystore_path="([^"]+)"', sign)[1]
+candidate = re.search(r'candidate_dir="([^"]+)"', sign)[1]
+# Directly in the runner temp root, so it can never sit inside the uploaded
+# candidate directory no matter how the upload list is written.
+assert re.fullmatch(r"\$RUNNER_TEMP/[^/]+", keystore), f"keystore path: {keystore}"
+assert re.fullmatch(r"\$RUNNER_TEMP/[^/]+", candidate), f"candidate dir: {candidate}"
+assert keystore != candidate and not keystore.startswith(candidate + "/"), (
+    "keystore must not live inside the uploaded candidate directory"
+)
+
+# Every step that consumes the pinned fingerprint must read the repository
+# variable, so the identity check cannot be neutered by rebinding it.
+for name, workflow in (("release", release), ("preflight", preflight)):
+    steps = re.findall(
+        r"^      - name: .*?(?=^      - name:|\Z)", workflow, re.MULTILINE | re.DOTALL
+    )
+    consumers = [s for s in steps if "$ALPHA_SIGNING_CERT_SHA256" in s]
+    assert consumers, f"{name}: nothing consumes the pinned fingerprint"
+    for step in consumers:
+        assert "ALPHA_SIGNING_CERT_SHA256: ${{ vars.ALPHA_SIGNING_CERT_SHA256 }}" in step, (
+            f"{name}: pinned fingerprint must come from the repository variable"
+        )
+
+# An unset fingerprint must fail the release before anything is built.
+validate = re.search(
+    r"^      - name: Validate signing secrets\n(.*?)(?=^      - name:|\Z)",
+    release, re.MULTILINE | re.DOTALL,
+)[1]
+assert 'if [[ -z "$ALPHA_SIGNING_CERT_SHA256" ]]; then' in validate, (
+    "release must reject an unset certificate fingerprint"
+)
+assert "missing=1" in validate and "((missing == 0))" in validate, (
+    "release secret validation must fail the job"
+)
+
+# A test-key build must be impossible to mistake for a real candidate, both in
+# its filename and in the artifact name testers download.
+assert 'label="$CANDIDATE_VERSION-TEST-KEY"' in sign, (
+    "test-key artifacts must carry a distinct filename label"
+)
+# A real-key preflight artifact is installable and publicly downloadable but is
+# not a release; it must never be named the way a published asset is named.
+assert 'label="$CANDIDATE_VERSION-candidate"' in sign, (
+    "persistent-key preflight artifacts must be marked as candidates"
+)
+assert 'label="$CANDIDATE_VERSION-candidate-UNVERIFIED"' in sign, (
+    "a real-key candidate signed without a pinned certificate must say so"
+)
+upload_name = re.search(r"name: (.+)\n", upload)[1]
+assert "${{ env.CANDIDATE_LABEL }}" in upload_name, (
+    "candidate artifact name must carry the same label as the files inside it"
+)
+
+# The provenance manifest that gets written must be the one that gets uploaded.
+manifest_step = re.search(
+    r"^      - name: Write candidate manifest\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+manifest = re.search(r'\} > "\$CANDIDATE_DIR/(\S+?)"', manifest_step)[1]
+assert f"${{{{ env.CANDIDATE_DIR }}}}/{manifest}" in paths, (
+    f"the written manifest {manifest} is not uploaded"
+)
+for field in ("Source commit:", "Android versionCode:", "Certificate SHA-256:",
+              "Certificate status:", "Signing identity:"):
+    assert field in manifest_step, f"candidate manifest must record {field}"
+
+# Signing secrets must never reach a workflow that untrusted code can trigger.
+# `secrets['NAME']` reads the same secret as `secrets.NAME`, so match both.
+assert not re.search(r"secrets[.\[]", ci), "CI must not read signing secrets"
+
+# Allowlist the triggers rather than denylisting names: `workflow_call` would
+# let any other workflow, including a pull_request_target one, invoke the
+# signing job with `secrets: inherit`.
+def triggers(workflow):
+    block = re.search(r"^on:\n((?:  \S.*\n|    .*\n|\n)*)", workflow, re.MULTILINE)[1]
+    return set(re.findall(r"^  ([a-z_]+):", block, re.MULTILINE))
+
+assert triggers(preflight) == {"workflow_dispatch"}, (
+    f"preflight triggers must be exactly workflow_dispatch, got {triggers(preflight)}"
+)
+assert triggers(release) == {"push"}, f"release triggers drifted: {triggers(release)}"
+
+# The candidate path must not be able to publish. A job-level permissions block
+# overrides the top-level one, so neither may widen the token.
+def permissions(workflow):
+    block = re.search(r"^permissions:\n((?:  \S.*\n|\n)*)", workflow, re.MULTILINE)[1]
+    return {
+        scope.strip(): level.strip()
+        for scope, _, level in (line.partition(":") for line in block.splitlines())
+        if scope.strip()
+    }
+
+# Exact sets, so a scope added alongside the expected one is rejected.
+for name, workflow, expected in (
+    ("preflight", preflight, {"contents": "read"}),
+    ("ci", ci, {"contents": "read"}),
+    ("release", release, {"contents": "write"}),
+):
+    assert permissions(workflow) == expected, (
+        f"{name} token must be exactly {expected}, got {permissions(workflow)}"
+    )
+for name, workflow in (("release", release), ("preflight", preflight), ("ci", ci)):
+    assert "write-all" not in workflow, f"{name}: write-all token"
+    assert not re.search(r"^    permissions:", workflow, re.MULTILINE), (
+        f"{name}: job-level permissions override the workflow token"
+    )
+
+# A checkout that persists credentials leaves the job token in .git/config,
+# in the same job as the decoded keystore.
+for name, workflow in (("release", release), ("preflight", preflight)):
+    checkouts = re.findall(r"uses: actions/checkout@[0-9a-f]{40}\n((?:        .*\n)+)", workflow)
+    assert checkouts, f"{name}: no checkout found"
+    assert len(checkouts) == workflow.count("uses: actions/checkout@"), (
+        f"{name}: a checkout step has no options block, so it persists credentials"
+    )
+    for block in checkouts:
+        assert "persist-credentials: false" in block, (
+            f"{name}: checkout must not persist credentials"
+        )
+
+# The runtime leak check must actually run, and must run on failure paths.
+cleanup = re.search(
+    r"^      - name: Confirm no signing material remains\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+assert "if: always()" in cleanup, "cleanup check must run on failed and cancelled runs"
+assert "-name '*.p12'" in cleanup and "$RUNNER_TEMP" in cleanup, "cleanup check gutted"
+assert 'if [[ -n "$remaining" ]]; then' in cleanup and "exit 1" in cleanup, (
+    "cleanup check must fail the job when signing material is found"
+)
+
+# ...and every gate must actually precede the thing it gates.
+def order(workflow):
+    return re.findall(r"^      - name: (.+)$", workflow, re.MULTILINE)
+
+preflight_order = order(preflight)
+assert preflight_order.index("Confirm the upload carries no signing material") \
+    < preflight_order.index("Upload candidate artifacts"), (
+    "the staged-upload check must run before the upload, not after it"
+)
+assert preflight_order.index("Verify packaged version and per-ABI native code") \
+    < preflight_order.index("Upload candidate artifacts"), (
+    "identity must be verified before the candidate is published as an artifact"
+)
+
+release_order = order(release)
+assert release_order.index("Verify packaged version and per-ABI native code") \
+    < release_order.index("Create GitHub prerelease"), (
+    "identity must be verified before the release is created, not after"
+)
+assert release_order.index("Sign and verify alpha APKs") \
+    < release_order.index("Create GitHub prerelease"), (
+    "APKs must be signed and verified before the release is created"
+)
+staged = re.search(
+    r"^      - name: Confirm the upload carries no signing material\n(.*?)(?=^      - name:|\Z)",
+    preflight, re.MULTILINE | re.DOTALL,
+)[1]
+assert "-name '*.p12'" in staged and "$CANDIDATE_DIR" in staged, "staged-upload check gutted"
+for guard in ('if [[ -n "$material" ]]; then', 'if [[ -n "$unexpected" ]]; then',
+              'if [[ ! -f "$required" ]]; then'):
+    assert guard in staged, f"staged-upload check must fail on: {guard}"
+assert staged.count("exit 1") >= 3, "staged-upload check must fail the job"
+# upload-artifact follows symlinks, and the name allowlist would pass one
+# called *.apk that points at the keystore, so any symlink at all must be
+# treated as signing material regardless of its name.
+assert "-o -type l" in staged, (
+    "the staged-upload check must treat every symlink as suspect"
+)
+assert "! -type d" in staged and "-type f" not in staged, (
+    "the file allowlist must not skip non-regular files"
+)
+
+# Version identity and per-ABI output must be read back out of the artifacts.
+# Both the candidate path and the publishing path must read identity back out
+# of the artifact they produced.
+for name, workflow in (("release", release), ("preflight", preflight)):
+    identity = re.search(
+        r"^      - name: Verify packaged version and per-ABI native code\n(.*?)(?=^      - name:|\Z)",
+        workflow, re.MULTILINE | re.DOTALL,
+    )
+    assert identity, f"{name}: no packaged-identity verification"
+    for abi, path in (("arm64-v8a", "$ARM64_SIGNED_PATH"), ("x86_64", "$X86_SIGNED_PATH")):
+        assert (
+            f'bash scripts/verify-apk-identity.sh "$BUILD_TOOLS_DIR/aapt2" \\\n'
+            f'            "{path}" {abi} "$VERSION_CODE" "$VERSION_NAME"'
+        ) in identity[1], f"{name}: {abi} identity verification drifted"
+for forbidden in ("gh release", "softprops/action-gh-release", "actions/create-release"):
+    assert forbidden not in preflight, f"preflight must not publish: {forbidden}"
+
+# Both signing paths must derive identical version metadata, so a preflight
+# result actually describes the artifact a later tag would produce.
+for name, workflow in (("release", release), ("preflight", preflight)):
+    assert 'version_code="$(git rev-list --count HEAD)"' in workflow, f"{name}: version code drift"
+    assert "fetch-depth: 0" in workflow, f"{name}: needs full history for the version code"
+    assert re.search(r"\^v\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+-alpha\\\.\[0-9\]\+\$", workflow), (
+        f"{name}: alpha version pattern drift"
+    )
+print("PASS: candidate signing path cannot publish or leak signing material")
+PY
+then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+fi
 
 printf '%d passed, %d failed\n' "$passed" "$failed"
 ((failed == 0))

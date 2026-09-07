@@ -77,7 +77,7 @@ class AppNavigationTest {
         launch()
         tab("Settings")
         compose.onNodeWithText(text(R.string.settings_version_label)).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText(expectedVersion).assertIsDisplayed()
+        compose.onNodeWithText(expectedVersion).performScrollTo().assertIsDisplayed()
     }
     @Test fun partialDownloadKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("partial")
     @Test fun truncatedModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("truncated")

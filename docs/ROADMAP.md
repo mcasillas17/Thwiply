@@ -1,6 +1,6 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, and FND-12 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, FND-03, FND-07, and FND-12 complete; FND-08 and other ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
 **Last updated:** 2026-09-06
 
 ## Product direction
@@ -35,7 +35,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Model-optional app shell | FND-02 complete | Today, Settings, and deletion controls are available without weights; optional setup returns to the previous tab, and Lab gates inference on the existing model/engine readiness contract |
 | Local LLM Lab | Foreground provider integration available; device evidence open | Qwen/LiteRT-LM and optional Nano/ML Kit share serialized operation ownership, cancellation/Stop and bounded streaming; metrics count Unicode code points, not chunks as tokens. Product-triage arbitration and real-model device proof remain open |
 | Optional Gemini Nano | Implementation present; physical acceptance blocked | Persisted explicit selection, SDK availability, separate preparation consent and foreground-only Lab exist; no automatic Qwen fallback/download and no Nano background-triage capability |
-| Product copy and privacy status | User-facing copy truthful; dead state remains | The UI says capture is unavailable, but unused notification/screenshot capture flags still default to enabled in `SettingsViewModel` |
+| App preferences and privacy status | FND-07 complete | Typed theme and versioned setup education persist with explicit failure/recovery states; unused capture flags and orphaned debug screens are removed. Preferences contain no notification content and never grant consent |
 | Durable task and decision data | Phase 1 delivered scope complete | Room v2, exported schemas, repositories, and restart tests exist; category projection and end-to-end correction application are not implemented |
 | Notification ingestion | Not started | No notification-access state, app allowlist, `NotificationListenerService`, normalizer, or ingestion queue exists |
 | Structured triage pipeline | Not started | Lab output is not connected to deterministic rules, a strict output schema, or persisted product state |
@@ -43,7 +43,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Notification-data lifecycle | FND-12 complete | One coordinator purges expired notification-derived records at startup, Today entry, and a uniquely scheduled daily job; expired rows stay hidden even when a delete fails, and a cleanup failure leaves manual tasks visible and usable behind a nonblocking warning |
 | Alpha distribution | Workflow delivered; runtime proof open | Signed, minified, per-ABI prereleases, checksums, and a 32 MiB arm64 size gate exist; the minified LiteRT-LM path lacks a recorded device smoke gate |
 | Instrumentation CI | FND-01 complete | A required, separate API 36 managed-emulator job executes Room reopen, migration, and backup tests; assertion-failure propagation and restored success are recorded below |
-| Android quality | Hardening open | Lifecycle-aware collection, target SDK 36 insets, string resources, accessibility semantics/touch targets, and adaptive-layout evidence remain open |
+| Android quality | FND-03 complete; other hardening open | Screens collect with lifecycle awareness and Today's Room observation and expiry timer stop with it; target SDK 36 insets, string resources, accessibility semantics/touch targets, and adaptive-layout evidence remain open |
 | Project metadata | Hardening open | Settings hardcodes its version, and README declares MIT while the linked `LICENSE` file is absent |
 
 ## Optional foreground Gemini Nano
@@ -86,14 +86,16 @@ Future ingestion must not retain raw notification bodies to wait for Nano, or
 silently switch providers. A future triage design must expose this capability
 distinction and an explicit unavailable/review path.
 
-This work implements the foreground-Lab portions of ownership, cancellation,
-bounds and metrics. It does **not** complete FND-03 through FND-11, FND-13,
-FND-14, or any product phase. Qwen metadata is now loaded asynchronously with
+The Nano integration implements the foreground-Lab portions of ownership,
+cancellation, bounds and metrics. It did **not** complete the wider foundation
+tasks or any product phase. FND-07 subsequently delivered theme/education
+persistence separately, and FND-03 lifecycle-aware collection, both with evidence
+below. Qwen metadata is loaded asynchronously with
 explicit read failures, but restart weight adoption still checks length rather
-than revalidating the digest (FND-08). Theme/education persistence, broader
-download hardening, product-triage arbitration and physical/minified evidence
-remain in their existing tasks. FND-01, FND-02 and FND-12 retain their completed
-status and evidence.
+than revalidating the digest (FND-08). Broader download hardening,
+product-triage arbitration and physical/minified evidence
+remain in their existing tasks. FND-01, FND-02, FND-03, FND-07 and FND-12 retain
+their completed status and evidence.
 
 ## Task model
 
@@ -150,8 +152,8 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. `FND-01`, `FND-02`, and `FND-12` are complete. Start `FND-03` through
-   `FND-05`, `FND-07`, and `FND-14` in parallel where ownership permits.
+1. `FND-01`, `FND-02`, `FND-03`, `FND-07`, and `FND-12` are complete. Start
+   `FND-04`, `FND-05`, `FND-08`, and `FND-14` in parallel where ownership permits.
 2. Complete `FND-06` after its resource prerequisite and complete the model and
    Lab chain `FND-08` through `FND-11`.
 3. Prove the shipped minified path with `FND-13`.
@@ -169,12 +171,12 @@ These decisions are prerequisites, not open implementation options:
 |---|---|---|---|---|
 | FND-01 | Complete | Run existing Room reopen, migration, backup, and future service instrumentation in CI using a managed emulator job separate from the fast JVM/lint/build job. Preserve logs and make the device job required before merge. | None | API 36 Google APIs x86_64 GMD: `ThwiplyDatabaseTest` 8, `ThwiplyMigrationTest` 1, `BackupConfigurationTest` 1, and app-context 1 passed; [restored passing CI](https://github.com/mcasillas17/Thwiply/actions/runs/33952691422). A [deliberate instrumentation assertion](https://github.com/mcasillas17/Thwiply/actions/runs/33952276955/job/101269178705) failed the job and blocked merge; the temporary test was removed in ordinary commit `90090aa`. [Active ruleset](https://github.com/mcasillas17/Thwiply/rules/22323517) requires `Android instrumentation` with no bypass. |
 | FND-02 | Complete | Replace model-gated root navigation with an app shell that always exposes manual Today and Settings. Model setup becomes a resumable feature state, not an entrance requirement. | None | Missing, partial-download, truncated, removed, installed, and failed-engine fixtures preserve manual work and Settings; setup exit, retry, completion, and restoration are covered. See the FND-02 evidence below for actual emulator results and simulation boundaries. |
-| FND-03 | Ready | Add lifecycle-aware Compose flow collection and subscription policies. Replace screen-level `collectAsState()` usage, stop off-screen Room observation, and test foreground/background transitions. | None | App flows are collected only while their owners are active; process/background tests show no duplicate observers or lost visible state. |
+| FND-03 | Complete | Add lifecycle-aware Compose flow collection and subscription policies. Replace screen-level `collectAsState()` usage, stop off-screen Room observation, and test foreground/background transitions. | None | Screens collect with `collectAsStateWithLifecycle`; Today's Room observation and expiry timer are one shared `stateIn` subscription that stops with its collectors. Emulator lifecycle tests count open observations across stop/resume, navigation away/back, overlapping collectors, and expiry while hidden. See the FND-03 evidence below. |
 | FND-04 | Ready | Implement target SDK 36 edge-to-edge, status/navigation/IME insets, light/dark system-bar appearance, and adaptive phone/tablet/foldable layouts without changing product information architecture. | None | API 31 and 36 device tests cover gesture and three-button navigation, cutouts, IME use, rotation, and representative window sizes without clipped controls. |
 | FND-05 | Ready | Move user-facing copy, formatted counts, dates, accessibility labels, and errors into Android string/plural resources. Keep locale expansion separate until pilot scope chooses supported locales. | None | Android lint reports no production hardcoded-text violations; formatted/plural strings render correctly in unit or Compose tests. |
 | FND-06 | Blocked | Establish the accessibility baseline for existing surfaces: at least 48 dp interactive targets, meaningful state/action semantics, scalable text, contrast review, traversal order, and TalkBack paths for Today, Lab, onboarding, and Settings. Downstream features own their additional accessibility evidence. | FND-05 | Compose semantics tests and a documented TalkBack pass cover existing add, complete, delete, Lab generation/copy, model setup, and Settings flows. |
-| FND-07 | Ready | Add a typed preference repository for theme and durable education state; remove unused notification/screenshot capture flags and orphaned debug UI or isolate it to debug builds. Preferences never contain notification content. | None | Theme and education state survive process recreation; searches find no production capture placeholders; preference tests distinguish read/write failures from unset values. |
-| FND-08 | Blocked | Introduce explicit model states (`Missing`, `Verifying`, `Ready`, `Corrupt`, `Removing`, `Failed`), revalidate the active digest after restart off the main thread, and make every state visible without blocking manual features. | FND-02, FND-07 | Equal-length tampering and truncation are rejected after restart; original causes remain attached to failures; no JNI or full-file digest runs on the main thread. |
+| FND-07 | Complete | Add a typed preference repository for theme and durable education state; remove unused notification/screenshot capture flags and orphaned debug UI or isolate it to debug builds. Preferences never contain notification content. | None | 145 JVM and 44 API 36 ARM64 device tests passed; real process restarts restored Dark/Light and education v1 without changing provider bytes or granting consent. Failed reads, writes, resets, cancellation, races, and interrupted candidates are covered; obsolete capture/debug APIs are removed. See [FND-07 evidence](#fnd-07-evidence). |
+| FND-08 | Ready | Introduce explicit model states (`Missing`, `Verifying`, `Ready`, `Corrupt`, `Removing`, `Failed`), revalidate the active digest after restart off the main thread, and make every state visible without blocking manual features. | FND-02, FND-07 | Equal-length tampering and truncation are rejected after restart; original causes remain attached to failures; no JNI or full-file digest runs on the main thread. |
 | FND-09 | Blocked | Define single-engine ownership, off-main initialization, cancellation, stop, close, and arbitration between user-initiated Lab work and product triage. Never swallow coroutine cancellation or leak a conversation/native engine. | FND-08 | Fake-engine tests prove cancel/stop closes conversations, the mutex is released, user-visible states remain distinguishable, and one engine is active per process. |
 | FND-10 | Blocked | Make model download single-flight and resumable with validated range continuity, bounded/throttled progress, explicit cancellation, disk-space preflight, metered-network confirmation, timeouts, and user-initiated removal. | FND-07, FND-08 | Slow, partial, ignored-range, corrupt, low-space, metered, concurrent, cancel, restart, and remove cases pass without activating unverified bytes or reporting failure as success. |
 | FND-11 | Blocked | Correct Lab metrics and behavior: count characters or verified runtime tokens, bound prompt/output presentation, expose busy/stop states, reuse the engine arbitration contract, and keep Lab output separate from product persistence. | FND-09 | Metric tests use known streams and elapsed time; UI never labels chunks as tokens; Lab cancellation and contention states are visible and recoverable. |
@@ -255,6 +257,137 @@ physical-device proof. `FND-14` is **Complete**: the root
 LICENSE is present with attribution, Settings uses the packaged version, and
 toolchains/dependencies are documented. Owner provisioning/approval and suitable hardware are
 required before final smoke; all applicable release gates remain independent.
+
+#### FND-07 evidence
+
+Recorded on 2026-09-06:
+
+- [`AppPreferencesRepositoryTest`](../app/src/test/java/thwiply/elopenmike/com/data/preferences/AppPreferencesRepositoryTest.kt)
+  covers all theme values and education across repository recreation, missing
+  files versus malformed/unsupported/I/O/access failures, failed writes and
+  resets, nondestructive read recovery, rapid concurrent updates, initial-read
+  ordering, education-version changes, cancellation before/during commit and
+  during reads, and actual I/O-dispatcher thread ownership. Interrupted
+  candidates never replace saved values on read and are reclaimed by the next
+  write without touching neighboring provider files.
+- [`ThemeManagerTest`](../app/src/test/java/thwiply/elopenmike/com/ui/theme/ThemeManagerTest.kt)
+  verifies a recreated manager restores saved Dark mode and distinguishes
+  unavailable preferences from its temporary System rendering fallback.
+  [`PreferenceActivityTest`](../app/src/androidTest/java/thwiply/elopenmike/com/PreferenceActivityTest.kt)
+  uses the real activity, Hilt, and storage for theme/education recreation,
+  explanation replay, confirmed reset, and continued model-optional access.
+  It restores only preference bytes changed by its scenarios, not the installation
+  or other app data.
+- [`PreferenceStatusTest`](../app/src/androidTest/java/thwiply/elopenmike/com/PreferenceStatusTest.kt)
+  verifies resource-backed live-region errors without path/exception leakage,
+  including failed initial read followed by failed reset and successful read
+  recovery. [`ProviderControlsTest`](../app/src/androidTest/java/thwiply/elopenmike/com/ProviderControlsTest.kt)
+  confirms that acknowledged education bypasses neither Nano selection consent
+  nor the separate preparation consent.
+- The complete debug JVM suite ran **145 tests** with no failures; debug app/test
+  APK builds and `lintDebug` passed. The complete installed instrumentation suite
+  ran **44 tests** on an API 36 Google APIs ARM64 emulator with no failed/skipped
+  cases, preserving provider, navigation, Room, migration, backup, and retention
+  coverage. One earlier cold-boot attempt ended in a process-startup ANR before
+  tests; a successful real app launch and the subsequent complete run established
+  the reported result without clearing data.
+- Separate real-activity smoke selected Dark and Light and force-stopped/relaunched
+  the process after each choice, verifying different process IDs, the selected
+  theme, and rendered appearance. A third restart retained education v1 and
+  **About model setup** could reopen the explanation. Today and Settings remained
+  available without model weights. Provider-file bytes were unchanged, no
+  download or permission action was performed, and no installation/data erasure
+  was used. These observations are process-restoration evidence, not physical
+  Nano inference or signed/minified runtime acceptance.
+- Production searches find no obsolete notification/screenshot capture state or
+  orphaned debug screens. No model/provider, permission, retention, Gradle, or
+  wider lifecycle behavior changed. Preferences use a separate no-backup file,
+  not the notification-data deletion boundary.
+
+`FND-08` is now **Ready**, not implemented. `FND-04` through `FND-06`, `FND-09`
+through `FND-11`, `FND-13`, `FND-14`, and all other unrelated milestones retain
+their prior states and evidence.
+
+FND-03 evidence was recorded on 2026-09-06:
+
+- Every screen collector - Today, Lab, Settings, model setup, and the activity's theme -
+  uses `collectAsStateWithLifecycle` from the already-declared `lifecycle-runtime-compose`
+  2.9.4. No dependency was added.
+- Today's records are one `stateIn(WhileSubscribed(5 s))` flow. The Room observation, the
+  single next-expiry timer and the state the screen last rendered all live inside that
+  subscription, so a stopped or removed screen keeps none of them alive, every collector shares
+  one upstream observation, and a recreation or tab change inside the grace keeps the content on
+  screen. Nothing is retained past the grace: a returning screen reloads instead of replaying a
+  snapshot nothing was observing, which a delete-all from Settings would otherwise make stale.
+  The manual observation and timer jobs the view model used to own were deleted rather than
+  re-tuned.
+- Starting to collect is the visibility boundary, not only the resume callback: Compose
+  collects at `STARTED`, earlier than Today's `RESUMED` entry callback, so the read cutoff is
+  refreshed where the subscription starts, so a restarted subscription always reads at the
+  current time and has nothing retained to replay. While a subscription is live and its cutoff
+  advances at an expiry, the read projection carries each notification-derived row's own
+  retention expiry, so the snapshot in hand drops exactly the rows past their retention and
+  keeps the ones still within it; a device that slept past an expiry never renders expired
+  notification data, and manual rows have no retention at all. Retention stays in that read
+  projection rather than the durable `TriageItem` contract. Re-entry and every resume still
+  re-read and re-run the shared cleanup.
+- Ownership is explicit and unchanged where it was already correct. Retention cleanup and
+  the daily maintenance job stay application-owned; Lab's provider-change reset and model
+  setup's Qwen load-state watcher stay view-model-owned; Nano's top-resumed gate in
+  `MainActivity`/`InferenceCoordinator` was not touched and is not replaced by lifecycle-aware
+  collection. The persisted theme and preference flows FND-07 introduced are application-owned
+  and are collected the same lifecycle-aware way from Settings, model setup and the activity.
+- On latest `main` (FND-07 merged) the API 36 Google APIs ARM64 managed-device suite executed
+  **50 tests**, six of them new here, with no failures or skips.
+  [`TodayLifecycleObservationTest`](../app/src/androidTest/java/thwiply/elopenmike/com/ui/today/TodayLifecycleObservationTest.kt)
+  drives real Compose Today over real Room through real activity lifecycle transitions and a
+  counting decorator around the production repository: one observation while resumed, zero
+  after the activity stops, one again after resume with a read at the advanced time, the
+  expired notification row hidden while still stored, and a peak of one observation across
+  overlapping collectors, leaving composition, and returning. A third case restarts collection
+  at `STARTED` only and asserts that every read taken since the restart used the advanced time
+  and that the expired row is never part of the rendered state; removing the subscription-start
+  cutoff refresh was confirmed to fail it with a read at the pre-background cutoff. A fourth
+  case closes the observation, deletes the notification data through the real DAO while nothing
+  observes Today, re-composes the screen, and asserts the deleted row is never part of what it
+  renders; without the bounded retention of the last read it failed on-device with exactly that
+  row replayed.
+  [`TodayLifecycleAppTest`](../app/src/androidTest/java/thwiply/elopenmike/com/TodayLifecycleAppTest.kt)
+  runs the real activity, Hilt, and Room: a manual task and the selected task filter survive a
+  tab change, an activity recreation, and a background/resume cycle, and the Lab tab still
+  reports its provider state after resuming.
+- The JVM suite executed **157 tests** with no failures, errors, or skips, including twelve new
+  `TodayViewModelTest` cases: no collector opens no observation, two collectors share one,
+  stopping the last collector releases the observation, a stopped screen keeps no expiry timer,
+  a collector returning inside the grace period keeps the same observation, restarting then
+  resuming reads at each boundary through one observation, a restarted subscription reads at
+  the current time before any resume callback, a restarted subscription reloads instead of
+  replaying its snapshot, a released snapshot is never replayed after the data behind it
+  changed, a stale snapshot never renders the expired row, a stale snapshot drops only the
+  notification row that actually expired, and a cleanup run started by Today completes after
+  the screen stops collecting. Every behavioral case was observed failing against the implementation it
+  guards before the fix, including the grace period: setting the timeout to zero fails exactly
+  the case that covers it. These cases subscribe first and resume afterwards, matching the
+  production `STARTED`-then-`RESUMED` order.
+- `verifyBuildscriptBouncyCastle test lint assembleDebug` passed; lint reported no errors and
+  34 warnings, none in the changed Kotlin. The minified arm64 `:app:assembleAlpha` build passed
+  and the APK was 27,186,953 bytes, below the 33,554,432 gate. The four CI regression scripts
+  (`test-release-workflows.sh`, `test-check-apk-size.sh`, `test-verify-apk-certificate.sh`,
+  `test-verify-apk-identity.sh`) passed with 76, 6, 19, and 16 checks.
+
+Limitations recorded with this task: the 5-second stop timeout is a deliberate grace period, so
+a backgrounded screen releases its observation shortly after stopping rather than instantly. It
+keeps one shared subscription across a brief collector gap; it does not suppress a read, so a
+Today entry that restarts collection issues one read when collection starts and another at the
+resume callback. That extra local query is the deliberate cost of never rendering a record that
+expired while the screen was away.
+Subscription counts are measured by wrapping the real repository, which proves how many
+observations production code opens, not what SQLite does internally. No model weights are
+installed on the test device, so nothing here is evidence of real Nano or Qwen inference; the
+existing provider suites cover that behavior and still pass unchanged. No notification
+listener, ingestion path, or retention policy changed. `P4-09` remains **Blocked** on its
+other listed prerequisites, and no other foundation task is claimed by this work. See
+[screen and application state ownership](../README.md#screen-and-application-state-ownership).
 
 FND-12 evidence was recorded on 2026-09-06:
 

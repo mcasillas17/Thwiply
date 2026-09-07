@@ -13,6 +13,7 @@ import org.junit.rules.TemporaryFolder
 import thwiply.elopenmike.com.llm.model.DownloadState
 import thwiply.elopenmike.com.llm.provider.*
 import thwiply.elopenmike.com.testing.providerFixture
+import thwiply.elopenmike.com.testing.preferenceFixture
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OnboardingViewModelTest {
@@ -23,7 +24,7 @@ class OnboardingViewModelTest {
     @Test fun `repeated entry cannot start concurrent downloads and leaving preserves cancellation`() = runTest {
         var starts = 0
         var cancelled = 0
-        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { false }) {
+        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { false }, preferenceFixture(temporaryFolder.newFolder())) {
             flow {
                 starts++
                 try {
@@ -50,7 +51,7 @@ class OnboardingViewModelTest {
 
     @Test fun `setup failure remains explicit and can be retried to success`() = runTest {
         var starts = 0
-        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { false }) {
+        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { false }, preferenceFixture(temporaryFolder.newFolder())) {
             flow {
                 starts++
                 if (starts == 1) throw IOException("Disk unavailable")
@@ -66,12 +67,12 @@ class OnboardingViewModelTest {
     }
 
     @Test fun `restored setup adopts installed model without downloading`() = runTest {
-        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { true }) { error("Must not download") }
+        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { true }, preferenceFixture(temporaryFolder.newFolder())) { error("Must not download") }
         assertEquals(DownloadState.Success, viewModel.uiState.value)
     }
 
     @Test fun `immediate exit before the download starts does not leave a stuck spinner`() = runTest {
-        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { false }) { flow { awaitCancellation() } }
+        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), { false }, preferenceFixture(temporaryFolder.newFolder())) { flow { awaitCancellation() } }
         viewModel.startDownload()
         viewModel.pauseDownload()
         runCurrent()
@@ -96,7 +97,7 @@ class OnboardingViewModelTest {
         }
         val fixture = providerFixture(temporaryFolder.newFolder(), nanoFactory = NanoClientFactory { nano })
         fixture.selectProvider(ModelProvider.GEMINI_NANO)
-        val vm = OnboardingViewModel(fixture, { false }) { error("No Qwen download") }
+        val vm = OnboardingViewModel(fixture, { false }, preferenceFixture(temporaryFolder.newFolder())) { error("No Qwen download") }
         vm.checkNano()
         runCurrent()
         vm.pauseDownload()

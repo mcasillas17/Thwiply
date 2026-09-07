@@ -48,7 +48,7 @@ the additional audience and data-disclosure gates.
 - **Privacy-Minimized Data Foundation:** Versioned Room schemas, explicit migrations, 30-day retention for future notification-derived records, a confirmed delete-all control, and explicit database exclusions from cloud backup and device transfer.
 - **Centralized Retention Cleanup:** One coordinator purges expired notification-derived records at app startup, on Today entry, and once a day in the background; expired records stop being shown even when a delete fails, and manual tasks stay usable.
 - **Real Empty and Failure States:** Today reflects repository-backed `Flow` state instead of hardcoded sample tasks and distinguishes an empty database from a storage failure.
-- **Settings & Theme Manager:** Live support for **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan).
+- **Persistent App Preferences:** **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan) survive app restarts. Optional model-setup education is versioned and remembered separately from provider selection or consent.
 - **Official Adaptive Branding:** Custom spider-web spinneret icon design with Android 13+ monochrome dynamic theming support.
 
 ---
@@ -208,6 +208,75 @@ flowchart TD
     output -->|Stop, leave, background or switch| cleanup["Cancel and retain ownership until cleanup"]
 ```
 
+### App preferences and setup education
+
+Choose **System**, **Light**, or **Dark** under Settings > Appearance. The choice
+is saved locally and restored on process restart. With no saved preferences,
+the defaults are System theme and an unseen model-setup explanation. Before the
+initial read finishes, the app follows system appearance without claiming that
+System is a saved choice; Today and Settings remain available without a model.
+
+In optional model setup, **Got it** remembers acknowledgement of the existing
+explanation about optional setup, provider choice, and preserving tasks/weights.
+**About model setup** reopens it at any time. This is not onboarding completion:
+the saved value identifies the explanation version, not which screen was open.
+If that version changes, the explanation appears again. It never selects a
+provider, grants notification access, or authorizes preparation or downloads.
+Both Nano's adult-use/SDK disclosure confirmation and its separate preparation
+confirmation remain required for their respective actions.
+
+**Storage failures are not defaults.** Settings and model setup distinguish an
+unreadable file, damaged data, an unsupported format/value, and failed saves or
+resets using accessible, resource-backed messages. Failed writes retain the last
+saved choices. An unsafe read disables preference edits without blocking manual
+features. **Retry reading preferences** recovers existing saved values without
+overwriting them. If necessary, Settings offers **Reset app preferences**, with a
+confirmation explaining that only theme and education will be reset. A failed
+reset still offers read recovery; it never turns unknown data into a successful
+default or silently enables edits.
+
+The typed `AppPreferencesRepository` stores only a format version, theme enum,
+and model-setup education version in `noBackupFilesDir/app-preferences`. Its
+strict format is bounded to 256 bytes. Reads and serialized writes run off the
+main thread; writes sync a single reusable candidate and atomically replace the
+committed file before publishing state. An interrupted candidate is never read
+as saved preferences and is reused by the next write. Cancellation before commit
+prevents the write; a commit already in progress finishes disk/state publication
+together before cancellation is delivered to the caller.
+
+Preferences contain **no notification content, prompts, model output, or
+credentials**. They are excluded from Android backup and device transfer through
+the platform's [no-backup directory rules](https://developer.android.com/identity/data/autobackup#Files).
+The existing `model-provider` file remains the sole provider-selection store;
+there is no provider migration. Resetting preferences does not touch that file,
+Qwen weights, manual tasks, notification data, or permissions. Conversely,
+notification-data deletion and retention cleanup do not reset app preferences.
+Existing database backup exclusions remain in place.
+
+```mermaid
+flowchart LR
+    settings["Settings: theme / confirmed preference reset"] --> prefs["AppPreferencesRepository"]
+    education["Model setup: explanation acknowledgement"] --> prefs
+    prefs --> file["No-backup app-preferences: version + theme + education"]
+    prefs --> theme["ThemeManager: app appearance"]
+    setup["Explicit provider selection"] --> provider["Existing no-backup model-provider file"]
+    deletion["Notification-data deletion / retention"] --> room["Room notification records; not preferences"]
+```
+
+Preference regression coverage uses the existing test stack:
+
+```bash
+./gradlew :app:testDebugUnitTest --tests '*AppPreferencesRepositoryTest' \
+  --tests '*ThemeManagerTest'
+./gradlew :app:pixel2api36DebugAndroidTest \
+  -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+```
+
+The device suite includes preference recovery, activity recreation, education
+replay, and preserved Nano confirmation flows. See the
+[FND-07 evidence](docs/ROADMAP.md#fnd-07-evidence) for separate real process-restart
+observations and their limits.
+
 ### Notification-data retention and cleanup
 
 Notification-derived records expire **30 days after they are created**. Manual tasks never
@@ -287,6 +356,71 @@ Reproduce the automated coverage locally:
   -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 ```
 
+### Screen and application state ownership
+
+Every observable flow in Thwiply belongs to exactly one owner, and that owner decides when
+observation stops.
+
+| Owner | What it holds | When it stops |
+|---|---|---|
+| Screen | Today's Room observation of visible records, its single next-expiry timer, and the state it last rendered | shortly after the last lifecycle-aware collector stops (a 5 s grace, so a rotation or tab return reuses the same observation instead of opening a second one) |
+| ViewModel | Lab's provider-change reset, model setup's Qwen load-state watcher, filters, pending errors and input failures | when the owning `ViewModel` is cleared |
+| Application | retention cleanup, the daily maintenance job, provider selection, model load state, engine and Nano ownership | never because a screen left composition |
+
+Every screen reads state with `collectAsStateWithLifecycle()`, so a stopped screen collects
+nothing and a started one re-reads. Today goes further: its records are a `stateIn` flow shared by every collector, so
+leaving the tab, backgrounding the app, or briefly composing two copies of the screen during a
+transition can never open a second database observer or leave a timer running. Starting to
+collect is itself the visibility boundary — Compose collects at `STARTED`, earlier than Today's
+`RESUMED` entry callback — so a restarted subscription always reads at the current time.
+
+What Today last rendered lives exactly as long as the observation behind it. Inside the grace,
+a recreation or tab return keeps the content on screen. Past it, Today resets and reloads rather
+than replaying a snapshot nothing was observing — a record may have reached its retention, or
+Settings may have deleted the notification data, while the screen was away. While an observation
+is live, an expiry is re-checked per record against that row's own retention: the row past its
+retention is hidden immediately, one still within it keeps rendering, and manual tasks have no
+retention at all.
+
+The grace period keeps the shared subscription alive across a brief collector gap; it does not
+suppress a read. Today entry and every resume deliberately re-read at the current time, so
+re-entering Today issues one read when collection starts and another when the screen resumes.
+That is one extra local query per entry, traded for never rendering a record that expired while
+the screen was away.
+
+A cleanup run that Today started is application-owned: leaving the screen cannot cancel the
+delete, turn a failure into a success, or stop the daily job.
+
+**Lifecycle-aware collection is not Nano's foreground restriction.** Collection follows the
+`STARTED` lifecycle state and only decides when the UI observes data. Gemini Nano's platform
+rule is stricter and unrelated: inference is permitted only while Thwiply is the *top resumed*
+app, which `MainActivity.onTopResumedActivityChanged`/`onPause` report to `InferenceCoordinator`.
+A visible-but-not-top activity, and a foreground service, are both insufficient. That gate
+cancels in-flight model work; `collectAsStateWithLifecycle` never replaces it.
+
+```mermaid
+flowchart TD
+    resumed["Screen RESUMED"] -->|LifecycleResumeEffect| entry["onTodayEntered: cutoff = now, run shared cleanup"]
+    started["Screen STARTED"] -->|collectAsStateWithLifecycle| shared["stateIn WhileSubscribed(5s): cutoff = now on start"]
+    shared --> room["One Room observation at the current cutoff"]
+    shared --> recheck["Retained content re-checked against the new cutoff"]
+    shared --> timer["One timer for the earliest visible expiry"]
+    stopped["Screen STOPPED or removed"] -->|last collector gone| release["Room observation, timer and retained state released after 5s"]
+    entry --> cleanup["NotificationDataCleanupCoordinator on the application scope"]
+    cleanup --> durable["Delete survives the screen; failure is a nonblocking warning"]
+    topResumed["Top resumed activity"] -->|setForeground| nano["InferenceCoordinator: Nano/Qwen work allowed"]
+    lostTop["Lost top foreground"] -->|setForeground false| cancel["In-flight model operation cancelled"]
+```
+
+Reproduce the automated coverage locally:
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'thwiply.elopenmike.com.ui.today.*'
+./gradlew :app:pixel2api36DebugAndroidTest \
+  -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect \
+  -Pandroid.testInstrumentationRunnerArguments.class=thwiply.elopenmike.com.ui.today.TodayLifecycleObservationTest,thwiply.elopenmike.com.TodayLifecycleAppTest
+```
+
 ### Android instrumentation
 
 The full `:app` instrumentation suite runs on the Gradle Managed Device
@@ -358,14 +492,16 @@ cached test outcomes. Gradle manages device creation, clean baseline snapshots,
 headless startup, and shutdown; animations are disabled and only one managed
 device runs at a time. Do not add class selectors to CI: the full suite must run.
 The checker fails on missing reports/classes, inconsistent counts, duplicates,
-errors, assertion failures, or skipped tests. The current suite executes 38
+errors, assertion failures, or skipped tests. The current suite executes 44
 tests: `ThwiplyDatabaseTest` 12, `ThwiplyMigrationTest` 1,
 `BackupConfigurationTest` 1, `ExampleInstrumentedTest` 1,
 `AppNavigationTest` 12, `ModelOptionalLaunchTest` 2,
 `NotificationMaintenanceSchedulerTest` 2, `TodayCleanupFailureTest` 1,
-`ProviderControlsTest` 5, and `ProviderSetupTest` 1. The
+`ProviderControlsTest` 6, `ProviderSetupTest` 1, `PreferenceActivityTest` 3,
+and `PreferenceStatusTest` 2. The
 FND-01 foundation baseline remains 11 tests; FND-02 adds 11 navigation tests and
-FND-12 adds 7 retention-cleanup tests. The optional-provider work adds 9 cases.
+FND-12 adds 7 retention-cleanup tests. The optional-provider work adds 9 cases,
+and FND-07 adds 6 preference/consent cases.
 Provider controls use deterministic callbacks; the real-activity test covers
 selection persistence and navigation, not successful AICore inference or a real
 model download. JVM tests additionally use fake engines/SDK clients, actual

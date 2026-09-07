@@ -1,5 +1,20 @@
 <resources>
     <string name="app_name">Thwiply</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="preferences_loading">Reading app preferences…</string>
+    <string name="preferences_read_failed">App preferences could not be read. Saved choices have not been replaced. Retry, or reset app preferences in Settings.</string>
+    <string name="preferences_malformed">Saved app preferences are damaged. They have not been replaced. Retry, or reset app preferences in Settings.</string>
+    <string name="preferences_unsupported">Saved app preferences use an unsupported format or value. They have not been replaced. Update the app, retry, or reset app preferences in Settings.</string>
+    <string name="preferences_write_failed">App preferences could not be saved. Your last saved choices are kept. Try your choice again.</string>
+    <string name="preferences_reset_failed">App preferences could not be reset. Saved choices have not been replaced. Retry reading preferences to recover them, or try resetting again in Settings.</string>
+    <string name="preferences_retry">Retry reading preferences</string>
+    <string name="preferences_reset">Reset app preferences</string>
+    <string name="preferences_reset_description">Replace theme and model-setup education preferences with System theme and an unseen explanation? This does not change providers, models, tasks, notification data, or permissions.</string>
+    <string name="preferences_reset_confirm">Reset theme and education</string>
+    <string name="education_acknowledge">Got it</string>
+    <string name="education_show">About model setup</string>
     <string name="tab_today">Today</string>
     <string name="tab_lab">Lab</string>
     <string name="tab_settings">Settings</string>

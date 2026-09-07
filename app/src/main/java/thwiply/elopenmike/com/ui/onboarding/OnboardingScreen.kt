@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.Role
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.llm.model.DownloadState
 import thwiply.elopenmike.com.llm.model.ModelLoadState
 import thwiply.elopenmike.com.llm.provider.ModelProvider
@@ -43,19 +44,23 @@ import thwiply.elopenmike.com.ui.main.ProviderForegroundEffect
 import thwiply.elopenmike.com.ui.main.label
 import thwiply.elopenmike.com.ui.main.message
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
+import thwiply.elopenmike.com.data.preferences.AppPreferences
+import thwiply.elopenmike.com.data.preferences.PreferenceState
+import thwiply.elopenmike.com.ui.preferences.PreferenceStatus
 
 @Composable
 fun OnboardingScreen(
     onExit: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val selection by viewModel.selection.collectAsState()
-    val nanoState by viewModel.nanoState.collectAsState()
-    val busy by viewModel.busy.collectAsState()
-    val selecting by viewModel.selecting.collectAsState()
-    val failure by viewModel.failure.collectAsState()
-    val qwenLoadState by viewModel.qwenLoadState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val nanoState by viewModel.nanoState.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val selecting by viewModel.selecting.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val qwenLoadState by viewModel.qwenLoadState.collectAsStateWithLifecycle()
+    val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     ProviderForegroundEffect(
         viewModel.foreground, selection.provider to selecting,
         onEnter = {
@@ -70,6 +75,9 @@ fun OnboardingScreen(
         viewModel::pauseDownload, onExit,
         failure?.kind?.message(),
         qwenLoadState,
+        preferences,
+        viewModel::acknowledgeModelSetupEducation,
+        viewModel::reloadPreferences,
     )
 }
 
@@ -87,6 +95,9 @@ fun OnboardingContent(
     onExit: () -> Unit,
     failureMessage: Int?,
     qwenLoadState: ModelLoadState = ModelLoadState.Loaded,
+    preferences: PreferenceState = PreferenceState(AppPreferences()),
+    onAcknowledgeEducation: () -> Unit = {},
+    onRetryPreferences: () -> Unit = {},
 ) {
     BackHandler(onBack = onExit)
 
@@ -94,6 +105,7 @@ fun OnboardingContent(
     val controlsEnabled = !busy && !isDownloading
     var confirmNanoDownload by remember { mutableStateOf(false) }
     var confirmNanoUse by remember { mutableStateOf(false) }
+    var expandEducation by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -135,10 +147,23 @@ fun OnboardingContent(
         ) {
             // Hero Banner Section
             HeroBanner()
-            Text(
-                stringResource(R.string.setup_optional_description),
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            PreferenceStatus(preferences, onRetryPreferences)
+            if (preferences.values?.hasSeenModelSetupEducation != true || expandEducation) {
+                Column {
+                    Text(
+                        stringResource(R.string.setup_optional_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(
+                        enabled = preferences.canUpdate,
+                        onClick = { expandEducation = false; onAcknowledgeEducation() },
+                    ) { Text(stringResource(R.string.education_acknowledge)) }
+                }
+            } else {
+                TextButton(onClick = { expandEducation = true }) {
+                    Text(stringResource(R.string.education_show))
+                }
+            }
 
             // Value Proposition Pills
             ValuePropsRow()

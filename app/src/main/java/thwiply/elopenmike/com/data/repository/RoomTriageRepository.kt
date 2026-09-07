@@ -23,10 +23,12 @@ class RoomTriageRepository @Inject constructor(
         VisibleTriageRecords(
             records = rows.map { it.toDomain() },
             // Every notification row the DAO returned already expires after nowEpochMillis.
-            nextExpiryAtEpochMillis = rows
+            notificationExpiryByItemId = rows
                 .filter { it.item.sourceKind == SourceKind.NOTIFICATION.name }
-                .mapNotNull { it.item.retentionExpiresAtEpochMillis }
-                .minOrNull(),
+                .mapNotNull { row ->
+                    row.item.retentionExpiresAtEpochMillis?.let { row.item.id to it }
+                }
+                .toMap(),
         )
     }
 

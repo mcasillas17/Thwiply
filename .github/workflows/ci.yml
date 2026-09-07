@@ -130,6 +130,7 @@ jobs:
             -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect \
             -Pandroid.experimental.testOptions.managedDevices.setupTimeoutMinutes=5 \
             -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 \
+            -Pthwiply.versionName=ci-test-version \
             --rerun-tasks --no-build-cache \
             --stacktrace --info --no-daemon \
             2>&1 | tee "$RUNNER_TEMP/instrumentation/gradle.log"

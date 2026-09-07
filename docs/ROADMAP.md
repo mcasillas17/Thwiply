@@ -182,7 +182,7 @@ These decisions are prerequisites, not open implementation options:
 | FND-11 | Blocked | Correct Lab metrics and behavior: count characters or verified runtime tokens, bound prompt/output presentation, expose busy/stop states, reuse the engine arbitration contract, and keep Lab output separate from product persistence. | FND-09 | Metric tests use known streams and elapsed time; UI never labels chunks as tokens; Lab cancellation and contention states are visible and recoverable. |
 | FND-12 | Complete | Centralize notification-data cleanup at app startup, Today entry, and active ingestion boundaries; make purge failure diagnostic but never hide manual rows; add at most one best-effort local cleanup run per day with no network or model work. | None | One coordinator serves startup, Today entry, and a single daily `JobScheduler` job, one delete transaction per run; expired rows are also excluded from reads, so an injected purge failure keeps manual tasks visible and usable behind a nonblocking warning. See the FND-12 evidence below. |
 | FND-13 | Blocked | Audit packaged consumer rules, add only demonstrated R8/serialization/JNI rules, and run the minified alpha on an emulator and representative arm64 device through launch, model verification, initialization, and one generation. | FND-01, FND-08, FND-09, FND-10, FND-11 | The exact signed/minified variant launches and infers on device; mapping/keep evidence is archived; the arm64 size gate and per-ABI checks remain green. |
-| FND-14 | Ready | Repair release truth and maintenance policy: add the declared MIT license, display `BuildConfig.VERSION_NAME`, document supported toolchain/dependency baselines, remove or justify unused dependencies, and keep security maintenance separate from product phase status. | None | README license link resolves; installed build reports the packaged version; dependency verification and latest `main` CI are green; prerelease toolchain use has an explicit rationale or is replaced with evidence. |
+| FND-14 | Complete | Repair release truth and maintenance policy: add the declared MIT license, display `BuildConfig.VERSION_NAME`, document supported toolchain/dependency baselines, remove or justify unused dependencies, and keep security maintenance separate from product phase status. | None | README license link resolves; installed build reports the packaged version; dependency verification and latest `main` CI are green; prerelease toolchain use has an explicit rationale or is replaced with evidence. |
 
 FND-01 evidence was recorded on 2026-09-05: the negative run executed 12 tests
 (11 passed, one deliberate assertion failed), retained reports/logs, and left
@@ -253,9 +253,9 @@ FND-13 smoke preparation was recorded on 2026-09-06 (UTC), against re-fetched
   passed both jobs; that is not minified native inference evidence.
 
 `FND-13` remains **Blocked** on FND-08 through FND-11 and missing signed-candidate/
-physical-device proof. `FND-14` remains **Ready**, separate from FND-02: the root
-LICENSE is still absent and Settings still displays `1.0.0 (Alpha)` rather than
-the packaged version. Owner provisioning/approval and suitable hardware are
+physical-device proof. `FND-14` is **Complete**: the root
+LICENSE is present with attribution, Settings uses the packaged version, and
+toolchains/dependencies are documented. Owner provisioning/approval and suitable hardware are
 required before final smoke; all applicable release gates remain independent.
 
 #### FND-07 evidence

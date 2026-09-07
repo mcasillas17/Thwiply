@@ -479,6 +479,7 @@ AVD or already-running device is needed:
   -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect \
   -Pandroid.experimental.testOptions.managedDevices.setupTimeoutMinutes=5 \
   -Pandroid.experimental.testOptions.managedDevices.maxConcurrentDevices=1 \
+  -Pthwiply.versionName=local-test-version \
   --rerun-tasks --no-build-cache --stacktrace --info --no-daemon
 python3 scripts/check-instrumentation-results.py \
   app/build/outputs/androidTest-results/managedDevice/debug/pixel2api36
@@ -565,6 +566,24 @@ Common failures:
 | Boot, snapshot, or rendering timeout | Read the retained SDK and Gradle logs first; check acceleration and host ABI. Use the documented SwiftShader command; do not hide the failure or raise limits without evidence. |
 | Missing, skipped, or zero-count tests | Inspect XML and test discovery; remove unintended filters and rerun the full clean command. APK assembly is not test execution. |
 | Cancelled CI run | New pushes supersede older runs. Wait for the latest run; cancellation is neither a passing check nor assertion-failure evidence. |
+
+---
+
+## 🛠️ Toolchain and Dependencies
+
+The project uses Java 21, Kotlin 2.4.20-Beta1, and AGP 9.2.1. Prerelease
+versions of Kotlin, ML Kit GenAI (1.0.0-beta2), and LiteRT-LM (0.12.0) are
+used to access necessary on-device AI capabilities and language features required
+for inference experiments. Do not downgrade Kotlin or upgrade dependencies solely
+for tidiness.
+
+The `kotlinx-serialization-bom` is retained because Room's migration-test
+runtime requires a specific alignment, even if there are no production
+serialization imports.
+
+Dependency and security maintenance (e.g., Dependabot updates) is an ongoing
+operational requirement, separate from product milestone progress. Routine dependency
+updates do not complete product roadmap tasks.
 
 ---
 

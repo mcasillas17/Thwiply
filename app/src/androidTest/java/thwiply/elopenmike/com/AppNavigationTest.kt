@@ -17,6 +17,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import okhttp3.OkHttpClient
 import org.junit.*
 import org.junit.Assert.*
@@ -26,6 +28,7 @@ import thwiply.elopenmike.com.data.local.ThwiplyDatabase
 import thwiply.elopenmike.com.data.repository.*
 import thwiply.elopenmike.com.llm.engine.*
 import thwiply.elopenmike.com.llm.model.*
+import thwiply.elopenmike.com.llm.provider.*
 import thwiply.elopenmike.com.ui.main.*
 import thwiply.elopenmike.com.ui.onboarding.*
 import thwiply.elopenmike.com.ui.playground.*
@@ -35,6 +38,7 @@ import thwiply.elopenmike.com.ui.today.*
 
 /** Real navigation/screens/Room; tiny model and fake native engine, never a model download. */
 @RunWith(AndroidJUnit4::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 class AppNavigationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private lateinit var database: ThwiplyDatabase
@@ -43,16 +47,23 @@ class AppNavigationTest {
     private lateinit var restoration: StateRestorationTester
     private val downloads = MutableStateFlow<DownloadState>(DownloadState.Idle)
     private var initFails = false
-    private var downloadStarts = 0
+    @Volatile private var downloadStarts = 0
     @Volatile private var generations = 0
     private val viewModels = mutableListOf<ViewModel>()
     private var initializationGate: CountDownLatch? = null
     private val clock: Clock = Clock.systemUTC()
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var downloadGate: CountDownLatch? = null
+    private var metadataScheduler: TestCoroutineScheduler? = null
+    private lateinit var coordinator: InferenceCoordinator
+    private val providerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @After fun tearDown() {
         initializationGate?.countDown()
+        downloadGate?.countDown()
+        metadataScheduler?.runCurrent()
         compose.runOnIdle { viewModels.forEach { it.viewModelScope.cancel() } }
+        providerScope.cancel()
         if (::database.isInitialized) database.close()
         if (::modelDirectory.isInitialized) modelDirectory.deleteRecursively()
         applicationScope.cancel()
@@ -62,6 +73,27 @@ class AppNavigationTest {
     @Test fun partialDownloadKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("partial")
     @Test fun truncatedModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("truncated")
     @Test fun removedModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("removed")
+
+    @Test fun unreadableQwenMetadataKeepsManualWorkAndSettingsAvailable() {
+        launch("unreadable")
+        addManualTask()
+        tab("Settings")
+        compose.onNodeWithText("Delete notification data and rules").performScrollTo().assertIsEnabled()
+        openSetup()
+        compose.onNodeWithText(text(R.string.qwen_metadata_failed)).performScrollTo().assertIsDisplayed()
+        back()
+        tab("Today")
+        awaitText("Synthetic manual task").assertIsDisplayed()
+    }
+
+    @Test fun pendingQwenMetadataNeverLabelsTheOutputPaneAsNano() {
+        metadataScheduler = TestCoroutineScheduler()
+        launch()
+        tab("Lab")
+        compose.waitUntil(5_000) { coordinator.busy.value }
+        compose.onNodeWithText(text(R.string.nano_checking)).assertDoesNotExist()
+        compose.onAllNodesWithText(text(R.string.qwen_metadata_checking)).assertCountEquals(2)
+    }
 
     private fun unavailableLaunch(modelCondition: String) {
         launch(modelCondition)
@@ -145,14 +177,27 @@ class AppNavigationTest {
         compose.onNodeWithText(text(R.string.setup_download)).performScrollTo().performClick()
         compose.runOnIdle { downloads.value = DownloadState.Downloading(35) }
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNode(hasText(text(R.string.setup_downloading)) and hasClickAction())
-            .performScrollTo().assertIsNotEnabled()
+        // Disposing setup cancels its owned work; returning requires another explicit download.
+        awaitText(text(R.string.setup_download)).performScrollTo().assertIsEnabled()
         back()
         compose.onNode(hasText("Lab") and hasClickAction()).assertIsSelected()
         repeat(3) { openSetup(); back() }
         tab("Today")
         addManualTask()
         compose.runOnIdle { assertEquals(1, downloadStarts) }
+    }
+
+    @Test fun returningToLabWhileQwenDownloadUnwindsDoesNotReportNanoDownloading() {
+        downloadGate = CountDownLatch(1)
+        launch()
+        tab("Lab")
+        openSetup()
+        compose.onNodeWithText(text(R.string.setup_download)).performScrollTo().performClick()
+        compose.waitUntil(5_000) { downloadStarts == 1 }
+        back()
+        compose.onNode(hasText("Lab") and hasClickAction()).assertIsSelected()
+        compose.onNodeWithText(text(R.string.nano_downloading)).assertDoesNotExist()
+        downloadGate!!.countDown()
     }
 
     private fun launch(modelCondition: String = "missing") {
@@ -172,8 +217,20 @@ class AppNavigationTest {
                 writeText("test")
                 check(delete())
             }
+            "unreadable" -> {
+                File(modelDirectory, preset.fileName).writeText("test")
+                check(File(modelDirectory, "active-model").setReadable(false, false))
+            }
         }
-        val models = ModelManager(modelDirectory, OkHttpClient(), listOf(preset))
+        val client = OkHttpClient.Builder().addInterceptor {
+            downloadStarts++
+            check(downloadGate?.await(30, TimeUnit.SECONDS) == true)
+            throw java.io.IOException("Synthetic stopped download")
+        }.build()
+        val models = metadataScheduler?.let {
+            ModelManager(modelDirectory, client, listOf(preset), providerScope, StandardTestDispatcher(it))
+        } ?: ModelManager(modelDirectory, client, listOf(preset))
+        if (metadataScheduler == null) runBlocking { models.awaitLoaded() }
         database = Room.inMemoryDatabaseBuilder(context, ThwiplyDatabase::class.java).build()
         val lifecycle = RoomNotificationDataLifecycleRepository(database.dataLifecycleDao())
         val today = TodayViewModel(
@@ -181,7 +238,9 @@ class AppNavigationTest {
             NotificationDataCleanupCoordinator(lifecycle, clock, applicationScope),
             clock,
         )
-        val settings = SettingsViewModel(ThemeManager(), models)
+        val selection = ProviderSelectionRepository(File(modelDirectory, "provider"), providerScope, Dispatchers.IO)
+        runBlocking { selection.awaitLoaded() }
+        val settings = SettingsViewModel(ThemeManager(), models, selection)
         val deletion = NotificationDataSettingsViewModel(lifecycle)
         val engine = LlmEngineManager {
             object : ManagedEngine {
@@ -199,9 +258,14 @@ class AppNavigationTest {
                 }
             }
         }
-        val playground = PlaygroundViewModel(engine, models)
-        setup = OnboardingViewModel(models::isModelAvailable) {
-            flow {
+        coordinator = InferenceCoordinator(
+            selection, models, engine, NanoClientFactory { error("Nano not selected") },
+            providerScope, Dispatchers.IO,
+        )
+        coordinator.setForeground(true)
+        val playground = PlaygroundViewModel(coordinator)
+        setup = OnboardingViewModel(coordinator, models::isModelAvailable) {
+            if (downloadGate != null) coordinator.downloadQwen(preset) else flow {
                 downloadStarts++
                 downloads.value = DownloadState.Downloading(0)
                 downloads.takeWhile { it !is DownloadState.Success && it !is DownloadState.Error }

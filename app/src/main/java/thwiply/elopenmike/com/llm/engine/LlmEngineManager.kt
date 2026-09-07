@@ -5,6 +5,11 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +27,7 @@ sealed interface EngineState {
     data object Idle : EngineState
     data class Initializing(val modelPath: String) : EngineState
     data class Ready(val modelPath: String) : EngineState
-    data class Failed(val message: String) : EngineState
+    data class Failed(val message: String, val cause: Throwable? = null) : EngineState
 }
 
 internal fun interface ManagedEngineFactory {
@@ -40,10 +45,11 @@ internal interface ManagedConversation : AutoCloseable {
 
 @Singleton
 class LlmEngineManager internal constructor(
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val engineFactory: ManagedEngineFactory
 ) {
     @Inject
-    constructor() : this(ManagedEngineFactory(::LiteRtManagedEngine))
+    constructor() : this(Dispatchers.IO, ManagedEngineFactory(::LiteRtManagedEngine))
 
     private val mutex = Mutex()
     private var engine: ManagedEngine? = null
@@ -51,7 +57,7 @@ class LlmEngineManager internal constructor(
     private val _state = MutableStateFlow<EngineState>(EngineState.Idle)
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
-    suspend fun initialize(modelFile: File): Result<Unit> = mutex.withLock {
+    suspend fun initialize(modelFile: File): Result<Unit> = withContext(dispatcher) { mutex.withLock {
         val modelPath = modelFile.absolutePath
         if (engine != null && activeModelPath == modelPath) {
             return@withLock Result.success(Unit)
@@ -60,21 +66,33 @@ class LlmEngineManager internal constructor(
         _state.value = EngineState.Initializing(modelPath)
         var candidate: ManagedEngine? = null
         try {
+            // Do not hold two native engines while replacing the active model.
+            closeEngine()
             candidate = engineFactory.create(modelFile)
             candidate.initialize()
-            engine?.close()
+            currentCoroutineContext().ensureActive()
             engine = candidate
             activeModelPath = modelPath
             _state.value = EngineState.Ready(modelPath)
             Result.success(Unit)
         } catch (error: Exception) {
-            candidate?.close()
+            try {
+                candidate?.close()
+            } catch (cleanup: Exception) {
+                engine = candidate
+                activeModelPath = null
+                error.addSuppressed(cleanup)
+            }
+            if (error is CancellationException) {
+                _state.value = EngineState.Idle
+                throw error
+            }
             _state.value = EngineState.Failed(
-                error.message ?: "Unable to initialize the local model"
+                error.message ?: "Unable to initialize the local model", error
             )
             Result.failure(error)
         }
-    }
+    } }
 
     fun generateStream(prompt: String): Flow<String> = flow {
         mutex.withLock {
@@ -84,13 +102,23 @@ class LlmEngineManager internal constructor(
                 conversation.generate(prompt).collect(::emit)
             }
         }
-    }.flowOn(Dispatchers.IO)
+    }.flowOn(dispatcher)
 
-    suspend fun close() = mutex.withLock {
-        engine?.close()
-        engine = null
+    suspend fun close() = withContext(dispatcher) { mutex.withLock {
+        try {
+            closeEngine()
+            _state.value = EngineState.Idle
+        } catch (error: Exception) {
+            _state.value = EngineState.Failed("Unable to close the local model", error)
+            throw error
+        }
+    } }
+
+    private fun closeEngine() {
+        val previous = engine
         activeModelPath = null
-        _state.value = EngineState.Idle
+        previous?.close()
+        engine = null
     }
 }
 

@@ -22,7 +22,9 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 
 - No autonomous notification cancellation, snoozing, channel changes, or shade ranking.
 - No passive screenshot monitoring or automatic screenshot deletion.
-- No cloud inference, cloud sync, analytics, or account system.
+- No cloud inference, cloud sync, app-owned product analytics, or account system.
+  The included ML Kit SDK's Google usage/performance telemetry is disclosed
+  separately; on-device inference does not mean zero SDK data collection.
 - No arbitrary model URLs, model marketplace, or model-generated device actions.
 
 ## Current state
@@ -31,7 +33,8 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 |---|---|---|
 | Secure model installation | Core delivered; hardening open | Pinned HTTPS artifact, exact size, SHA-256 activation, and atomic install exist; restart adoption checks length but not the digest |
 | Model-optional app shell | FND-02 complete | Today, Settings, and deletion controls are available without weights; optional setup returns to the previous tab, and Lab gates inference on the existing model/engine readiness contract |
-| Local LiteRT-LM Lab | Alpha available; hardening open | Process-owned serialized engine and streaming UI exist; initialization, cancellation, arbitration, and throughput labels need correction |
+| Local LLM Lab | Foreground provider integration available; device evidence open | Qwen/LiteRT-LM and optional Nano/ML Kit share serialized operation ownership, cancellation/Stop and bounded streaming; metrics count Unicode code points, not chunks as tokens. Product-triage arbitration and real-model device proof remain open |
+| Optional Gemini Nano | Implementation present; physical acceptance blocked | Persisted explicit selection, SDK availability, separate preparation consent and foreground-only Lab exist; no automatic Qwen fallback/download and no Nano background-triage capability |
 | Product copy and privacy status | User-facing copy truthful; dead state remains | The UI says capture is unavailable, but unused notification/screenshot capture flags still default to enabled in `SettingsViewModel` |
 | Durable task and decision data | Phase 1 delivered scope complete | Room v2, exported schemas, repositories, and restart tests exist; category projection and end-to-end correction application are not implemented |
 | Notification ingestion | Not started | No notification-access state, app allowlist, `NotificationListenerService`, normalizer, or ingestion queue exists |
@@ -43,11 +46,61 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Android quality | Hardening open | Lifecycle-aware collection, target SDK 36 insets, string resources, accessibility semantics/touch targets, and adaptive-layout evidence remain open |
 | Project metadata | Hardening open | Settings hardcodes its version, and README declares MIT while the linked `LICENSE` file is absent |
 
+## Optional foreground Gemini Nano
+
+This is an explicitly requested addition to the earlier Qwen-only scope, not a
+restoration of the removed Gemma preset or a model marketplace. Nano is accessed
+through `genai-prompt:1.0.0-beta2` using the default stable model configuration.
+Android AICore owns its shared model; Qwen remains a separate, pinned,
+app-managed artifact. A provider change never deletes weights or manual tasks,
+and unavailability/failure never changes a saved Nano choice into Qwen.
+
+| ID | Status | Delivered scope | Remaining acceptance |
+|---|---|---|---|
+| NANO-01 | Blocked on supported-device evidence | Typed atomic provider selection; setup/Settings ownership and SDK telemetry disclosures; explicit preparation consent; SDK-driven availability; bounded, serialized foreground Lab with streaming, Stop, safe error categories and preserved causes | A supported physical device must demonstrate actual default-stable Nano availability, an approved preparation/download when necessary, completed generation, stop/background/switch recovery and resource behavior. The exact minified candidate and audience/data-disclosure requirements must also satisfy the release gates. |
+
+Automated coverage includes **125 JVM tests** and **38 API 36 Google APIs ARM64
+managed-device tests**, with no failed/skipped cases in the full successful run.
+The model/provider tests cover persistence and failure, explicit download consent,
+SDK status/error mapping, actual beta2 request-builder bounds, serialization,
+foreground loss, cancellation/cleanup, stale-output clearing and manual/Qwen
+preservation. Tiny Qwen artifacts, fake native engines and proxy SDK clients
+are simulation evidence, not real-model inference. Real-activity emulator
+coverage establishes provider-choice persistence and navigation, not that AICore
+reported `AVAILABLE` or generated a response.
+
+No supported physical device was connected during validation. Neither real Nano
+nor full Qwen inference, a real model download, or signed-candidate runtime smoke
+was performed. These paths remain **not obtained**; emulator success and
+unsigned minified packaging do not complete them. Follow the
+[provider smoke scenarios](ALPHA_SMOKE.md#gemini-nano-scenarios) and
+[policy/device release gates](RELEASING.md#gemini-nano-policy-and-device-gates)
+with an owner-approved device, build and network before claiming acceptance.
+
+The pinned SDK's actual builder caps output at **256 tokens**. Input is counted
+and must be below 4,000 tokens and fit the device's combined input/output budget.
+The Lab's JSON is experimental text, not validated triage or persisted tasks.
+The [ML Kit foreground restriction](https://developers.google.com/ml-kit/genai#background-usage)
+excludes foreground services: Nano cannot power unattended notification triage.
+Future ingestion must not retain raw notification bodies to wait for Nano, or
+silently switch providers. A future triage design must expose this capability
+distinction and an explicit unavailable/review path.
+
+This work implements the foreground-Lab portions of ownership, cancellation,
+bounds and metrics. It does **not** complete FND-03 through FND-11, FND-13,
+FND-14, or any product phase. Qwen metadata is now loaded asynchronously with
+explicit read failures, but restart weight adoption still checks length rather
+than revalidating the digest (FND-08). Theme/education persistence, broader
+download hardening, product-triage arbitration and physical/minified evidence
+remain in their existing tasks. FND-01, FND-02 and FND-12 retain their completed
+status and evidence.
+
 ## Task model
 
 Task IDs are stable and do not change when work is reordered:
 
 - `FND` - foundation hardening;
+- `NANO` - the optional foreground provider extension and its acceptance;
 - `P2`, `P3`, and `P4` - product phase delivery;
 - `PILOT` - pilot measurement and release readiness;
 - `DEF` - explicitly deferred work.
@@ -71,6 +124,8 @@ These decisions are prerequisites, not open implementation options:
 
 - manual tasks and Settings remain usable without a downloaded or healthy
   model;
+- Nano inference is top-foreground-only; no foreground-service bypass,
+  background notification-triage use, or automatic provider fallback;
 - raw notification fields live only in a bounded in-memory queue;
 - enqueue returns an explicit accepted, duplicate, overflow, or unavailable
   result, and overflow is never reported as success;
@@ -314,7 +369,7 @@ no other foundation task is claimed by this work. See
 
 | ID | Status | Outcome and implementation | Depends on | Completion evidence |
 |---|---|---|---|---|
-| PILOT-00 | Blocked | Approve the pilot protocol: supported build/device/app matrix, recruitment and feedback boundaries, local measurement taxonomy, privacy notice, rollback, issue severity, and go/no-go ownership. | P4-00 | A versioned protocol maps each pilot decision to a measurable signal and owner without cloud analytics. |
+| PILOT-00 | Blocked | Approve the pilot protocol: supported build/device/app matrix, recruitment and feedback boundaries, local measurement taxonomy, privacy notice, rollback, issue severity, and go/no-go ownership. | P4-00 | A versioned protocol maps each pilot decision to a measurable signal and owner without app-owned cloud analytics; included SDK telemetry remains explicitly disclosed. |
 | PILOT-01 | Blocked | Implement local aggregate measurement for regret proxies, correction and rule rates, time-to-visible-decision, queue wait/overflow, inference result/latency, retention, and failures. Bound storage and retention; make reset/export user-controlled. | P3-09, P4-08, PILOT-00 | Tests show one bounded aggregate update per event/outcome and zero payload retention; deletion/export are complete and distinguish failures. |
 | PILOT-02 | Blocked | Run the versioned evaluation corpus and real-model device sessions; report schema validity, confusion/correction behavior, latency, memory, battery, and thermal observations by build/model/schema version. | P3-10, PILOT-01 | Reproducible reports contain sample counts and distributions, explain exclusions, and use synthetic or explicitly consented data only. |
 | PILOT-03 | Blocked | Execute representative API 31 and 36 physical-device scenarios across messaging/email apps, OEM/lifecycle variance, offline/metered states, reconnect/reboot, long bursts, backgrounding, model removal, and low-resource conditions. | P2-12, P4-10, PILOT-00 | Device matrix records exact builds and outcomes; unsupported configurations are named from evidence rather than assumed. |
@@ -500,11 +555,13 @@ decision satisfy their promotion gates:
 | DEF-05 | User-initiated screenshot intake through a share target or Android Photo Picker | Separate consent, retention, deletion, and threat-model design is approved. |
 | DEF-06 | Explicitly opted-in notification snoozing with audit and undo | The read-only MVP proves trust and a separate source-notification mutation design is approved. |
 | DEF-07 | Production signing and Play distribution | Pilot gates pass and production release, policy, support, rollback, and key-management plans are approved. |
-| DEF-08 | Accounts, cloud sync, cloud inference, or analytics | A separate product/privacy decision deliberately changes the local-only non-promise. |
+| DEF-08 | Accounts, cloud sync, cloud inference, or app-owned product analytics | A separate product/privacy decision changes the non-promise. ML Kit SDK telemetry for the requested Nano extension is already explicitly disclosed; it does not authorize product analytics or cloud prompt inference. |
 | DEF-09 | Notification cancellation, ranking, channel mutation, or other shade control | A separate trust/safety design proves auditability, undo, and fail-open behavior. |
 | DEF-10 | Model marketplace, arbitrary URLs, or automatic multi-model switching | Supply-chain, compatibility, storage, UX, and support designs are approved. |
 
 No fixed battery, latency, RAM, confidence, or quality threshold is accepted without measurements on supported physical devices.
+Lab request/deadline bounds are protective app policies, not measured performance
+acceptance targets.
 
 Reference: [Android Photo Picker and selected-media access](https://developer.android.com/about/versions/14/changes/partial-photo-video-access).
 
@@ -516,9 +573,14 @@ Reference: [Android Photo Picker and selected-media access](https://developer.an
 - Raw notification content is memory-only.
 - Durable records contain only the minimum information needed for the user-facing feature.
 - Notification-derived data is excluded from cloud backup and device transfer.
-- Users can delete all derived data, rules, and diagnostics; downloaded model
-  data has a separate user-controlled removal path.
-- Network access is limited to approved model downloads; notification content is never an outbound request body.
+- Users can delete all derived data, rules, and diagnostics. App-managed Qwen
+  weight removal is a separate user-controlled requirement (FND-10); Thwiply
+  cannot delete Android's shared Nano model.
+- Network activity is limited to approved app-managed model downloads, Android's
+  Nano model/configuration updates, and the explicitly disclosed ML Kit
+  configuration/update requests and usage/performance telemetry. SDK
+  initialization can precede provider selection. Cloud inference remains
+  prohibited, and notification content is never an outbound request body.
 
 Reference: [Android Auto Backup](https://developer.android.com/identity/data/autobackup).
 
@@ -539,7 +601,9 @@ Reference: [Android Auto Backup](https://developer.android.com/identity/data/aut
 - Input fields are allowlisted and length-bounded at ingestion.
 - Model output is parsed once against an exact closed schema before
   persistence; unknown or wrapped output is rejected rather than repaired.
-- Only app-approved, digest-pinned model artifacts can become active.
+- Only app-approved, digest-pinned app-managed model artifacts can become active.
+  Nano availability and shared-model management belong to ML Kit/AICore, not
+  Thwiply's artifact-verification or removal path.
 - No model output can directly execute an Android action.
 
 ### Android quality

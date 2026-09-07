@@ -25,6 +25,7 @@ class DebugViewModel @Inject constructor(
     
     init {
         viewModelScope.launch {
+            modelManager.awaitLoaded()
             if (modelManager.isModelAvailable()) {
                 engineManager.initialize(modelManager.modelFile)
                     .exceptionOrNull()

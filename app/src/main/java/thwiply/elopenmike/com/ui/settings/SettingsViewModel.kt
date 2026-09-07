@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import thwiply.elopenmike.com.llm.model.ModelManager
+import thwiply.elopenmike.com.llm.provider.ProviderSelectionRepository
 import thwiply.elopenmike.com.ui.theme.ThemeManager
 import thwiply.elopenmike.com.ui.theme.ThemeMode
 import javax.inject.Inject
@@ -13,11 +14,14 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val themeManager: ThemeManager,
-    private val modelManager: ModelManager
+    private val modelManager: ModelManager,
+    selectionRepository: ProviderSelectionRepository,
 ) : ViewModel() {
 
     val themeMode: StateFlow<ThemeMode> = themeManager.themeMode
     val activeModel = modelManager.activeModel
+    val modelLoadState = modelManager.loadState
+    val selection = selectionRepository.state
 
     private val _notificationCaptureEnabled = MutableStateFlow(true)
     val notificationCaptureEnabled: StateFlow<Boolean> = _notificationCaptureEnabled.asStateFlow()

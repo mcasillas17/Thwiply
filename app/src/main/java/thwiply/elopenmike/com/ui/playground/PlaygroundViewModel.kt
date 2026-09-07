@@ -2,96 +2,98 @@ package thwiply.elopenmike.com.ui.playground
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import thwiply.elopenmike.com.llm.engine.LlmEngineManager
-import thwiply.elopenmike.com.llm.model.ModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.SharingStarted
-import thwiply.elopenmike.com.llm.engine.EngineState
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import thwiply.elopenmike.com.llm.provider.InferenceCoordinator
+import thwiply.elopenmike.com.llm.provider.InferenceFailure
+import thwiply.elopenmike.com.llm.provider.FailureKind
+import thwiply.elopenmike.com.llm.provider.ProviderReadiness
 
 data class PlaygroundMetrics(
-    val tokenCount: Int = 0,
+    val characterCount: Int = 0,
     val elapsedMs: Long = 0,
-    val tokensPerSec: Double = 0.0
+    val charactersPerSec: Double = 0.0,
 )
 
-sealed interface LabReadiness {
-    data object Missing : LabReadiness
-    data object NeedsInitialization : LabReadiness
-    data object Initializing : LabReadiness
-    data object Ready : LabReadiness
-    data class Failed(val message: String) : LabReadiness
-}
-
 @HiltViewModel
-class PlaygroundViewModel internal constructor(
-    private val engineManager: LlmEngineManager,
-    private val modelManager: ModelManager,
-    private val initializationDispatcher: CoroutineDispatcher,
+class PlaygroundViewModel @Inject constructor(
+    private val coordinator: InferenceCoordinator,
 ) : ViewModel() {
-    @Inject constructor(engineManager: LlmEngineManager, modelManager: ModelManager) :
-        this(engineManager, modelManager, Dispatchers.IO)
+    val selection = coordinator.selection
+    val readiness = coordinator.readiness
+    val foreground = coordinator.foreground
+    val busy = coordinator.busy
+    private var preparationJob: Job? = null
+    private var generationJob: Job? = null
+    private var revision = 0L
 
-    val activeModel = modelManager.activeModel
-    val readiness = combine(activeModel, engineManager.state) { _, _ -> currentReadiness() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, currentReadiness())
-    private var initializationJob: Job? = null
-    private val _generationFailure = MutableStateFlow<Throwable?>(null)
+    private val _generationFailure = MutableStateFlow<InferenceFailure?>(null)
     val generationFailure = _generationFailure.asStateFlow()
-
     private val _isGenerating = MutableStateFlow(false)
-    val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
-
+    val isGenerating = _isGenerating.asStateFlow()
+    private val _stopped = MutableStateFlow(false)
+    val stopped = _stopped.asStateFlow()
     private val _output = MutableStateFlow("")
-    val output: StateFlow<String> = _output.asStateFlow()
-
+    val output = _output.asStateFlow()
     private val _metrics = MutableStateFlow(PlaygroundMetrics())
-    val metrics: StateFlow<PlaygroundMetrics> = _metrics.asStateFlow()
+    val metrics = _metrics.asStateFlow()
 
-    private fun currentReadiness(): LabReadiness {
-        if (!modelManager.isModelAvailable()) return LabReadiness.Missing
-        return when (val state = engineManager.state.value) {
-            EngineState.Idle -> LabReadiness.NeedsInitialization
-            is EngineState.Initializing -> LabReadiness.Initializing
-            is EngineState.Failed -> LabReadiness.Failed(state.message)
-            is EngineState.Ready -> if (state.modelPath == modelManager.modelFile.absolutePath) {
-                LabReadiness.Ready
-            } else {
-                LabReadiness.NeedsInitialization
+    init {
+        var previousProvider = selection.value.provider
+        viewModelScope.launch {
+            selection.map { it.provider }.distinctUntilChanged().collect { provider ->
+                if (provider != previousProvider) {
+                    previousProvider = provider
+                    stop()
+                    _output.value = ""
+                    _metrics.value = PlaygroundMetrics()
+                    _generationFailure.value = null
+                    _stopped.value = false
+                }
             }
         }
     }
 
     fun prepareEngine() {
-        if (!modelManager.isModelAvailable() || currentReadiness() == LabReadiness.Ready ||
-            initializationJob?.isActive == true || _isGenerating.value) return
-        initializationJob = viewModelScope.launch {
-            // Keep the shell responsive while the existing process-owned engine initializes.
-            val result = withContext(initializationDispatcher) {
-                engineManager.initialize(modelManager.modelFile)
+        if (preparationJob?.isActive == true || selection.value.provider == null) return
+        preparationJob = viewModelScope.launch {
+            _generationFailure.value = null
+            try {
+                busy.first { !it }
+                coordinator.prepare()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (failure: InferenceFailure) {
+                _generationFailure.value = failure
             }
-            ensureActive()
-            result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-            // EngineState carries the initialization failure; output remains generation-only.
         }
     }
 
     fun generate(input: String, isJsonExtraction: Boolean) {
-        if (input.isBlank() || currentReadiness() != LabReadiness.Ready || _isGenerating.value) return
-        _isGenerating.value = true
-        _generationFailure.value = null
+        if (_isGenerating.value || busy.value) return
+        if (input.isBlank()) {
+            _generationFailure.value = InferenceFailure(FailureKind.INVALID_INPUT)
+            return
+        }
+        if (input.length > MAX_INPUT_CHARACTERS) {
+            _generationFailure.value = InferenceFailure(FailureKind.INPUT_TOO_LONG)
+            return
+        }
+        if (readiness.value != ProviderReadiness.Ready) {
+            _generationFailure.value = InferenceFailure(FailureKind.UNAVAILABLE)
+            return
+        }
+        val provider = selection.value.provider
+        val requestRevision = ++revision
         val prompt = if (isJsonExtraction) {
             """
             You are Thwiply, an on-device AI assistant. Extract any actionable task from the following message as clean JSON:
@@ -104,32 +106,51 @@ class PlaygroundViewModel internal constructor(
               "sender": "Identified sender"
             }
             """.trimIndent()
-        } else {
-            input
-        }
-
-        viewModelScope.launch {
+        } else input
+        generationJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             _isGenerating.value = true
+            _generationFailure.value = null
+            _stopped.value = false
             _output.value = ""
-            val startTime = System.currentTimeMillis()
-            var tokens = 0
-
+            _metrics.value = PlaygroundMetrics()
+            val start = System.nanoTime()
             try {
-                engineManager.generateStream(prompt).collect { token ->
-                    _output.value += token
-                    tokens++
-                    val elapsed = System.currentTimeMillis() - startTime
-                    val tps = if (elapsed > 0) (tokens.toDouble() / (elapsed / 1000.0)) else 0.0
-                    _metrics.value = PlaygroundMetrics(tokens, elapsed, tps)
+                coordinator.generate(prompt).collect { chunk ->
+                    if (revision == requestRevision && selection.value.provider == provider) {
+                        _output.value += chunk
+                        val elapsed = (System.nanoTime() - start) / 1_000_000
+                        val characters = _output.value.codePointCount(0, _output.value.length)
+                        _metrics.value = PlaygroundMetrics(
+                            characters, elapsed,
+                            if (elapsed > 0) characters * 1_000.0 / elapsed else 0.0,
+                        )
+                    }
                 }
             } catch (cancellation: CancellationException) {
+                if (revision == requestRevision) _stopped.value = true
                 throw cancellation
-            } catch (error: Exception) {
-                _generationFailure.value = error
+            } catch (failure: InferenceFailure) {
+                if (failure.kind == FailureKind.SAFETY || failure.kind == FailureKind.EMPTY_OUTPUT) {
+                    _output.value = ""
+                    _metrics.value = PlaygroundMetrics()
+                }
+                if (revision == requestRevision) {
+                    _generationFailure.value = failure
+                }
             } finally {
                 _isGenerating.value = false
             }
         }
     }
 
+    fun stop() {
+        revision++
+        if (_isGenerating.value) _stopped.value = true
+        generationJob?.cancel()
+        preparationJob?.cancel()
+    }
+
+    companion object {
+        const val MAX_INPUT_CHARACTERS = 2_000
+    }
 }

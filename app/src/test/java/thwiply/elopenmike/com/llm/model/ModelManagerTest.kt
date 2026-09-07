@@ -2,6 +2,10 @@ package thwiply.elopenmike.com.llm.model
 
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
@@ -20,6 +24,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.security.MessageDigest
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ModelManagerTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
@@ -40,12 +45,15 @@ class ModelManagerTest {
     }
 
     @Test
-    fun `partial download is never reported as active`() {
+    fun `partial download is never reported as active`() = runBlocking {
         val preset = preset("candidate", "candidate".toByteArray())
+        File(modelsDir, "active-model").writeText(preset.id)
         File(modelsDir, "${preset.fileName}.part").writeText("partial")
 
         val manager = ModelManager(modelsDir, redirectedClient(), listOf(preset))
 
+        manager.awaitLoaded()
+        assertEquals(ModelLoadState.Loaded, manager.loadState.value)
         assertFalse(manager.isModelAvailable())
         assertNull(manager.activeModel.value)
     }
@@ -123,6 +131,43 @@ class ModelManagerTest {
         assertEquals(DownloadState.Success, result)
         assertEquals(0, server.requestCount)
         assertArrayEquals(modelBytes, manager.modelFile.readBytes())
+    }
+
+    @Test
+    fun `construction leaves metadata reads on the supplied loader dispatcher`() = runTest {
+        val bytes = "test".toByteArray()
+        val preset = preset("installed", bytes)
+        val manager = ModelManager(
+            modelsDir, redirectedClient(), listOf(preset), backgroundScope, StandardTestDispatcher(testScheduler),
+        )
+        File(modelsDir, "active-model").writeText(preset.id)
+        File(modelsDir, preset.fileName).writeBytes(bytes)
+        assertEquals(ModelLoadState.Loading, manager.loadState.value)
+        assertNull(manager.activeModel.value)
+        runCurrent()
+        assertEquals(ModelLoadState.Loaded, manager.loadState.value)
+        assertEquals(preset, manager.activeModel.value)
+    }
+
+    @Test
+    fun `bounded metadata failure preserves weights and supports explicit refresh`() = runTest {
+        val bytes = "test".toByteArray()
+        val preset = preset("installed", bytes)
+        val metadata = File(modelsDir, "active-model").apply { writeText("x".repeat(257)) }
+        val installed = File(modelsDir, preset.fileName).apply { writeBytes(bytes) }
+        val manager = ModelManager(
+            modelsDir, redirectedClient(), listOf(preset), backgroundScope, StandardTestDispatcher(testScheduler),
+        )
+        runCurrent()
+        assertTrue(manager.loadState.value is ModelLoadState.Failed)
+        assertTrue((manager.loadState.value as ModelLoadState.Failed).cause is java.io.IOException)
+        assertFalse(manager.isModelAvailable())
+        assertArrayEquals(bytes, installed.readBytes())
+        metadata.writeText(preset.id)
+        manager.refreshInstalledModel()
+        assertEquals(ModelLoadState.Loaded, manager.loadState.value)
+        assertEquals(preset, manager.activeModel.value)
+        assertEquals(0, server.requestCount)
     }
 
     private fun preset(id: String, expectedBytes: ByteArray): ModelPreset = ModelPreset(

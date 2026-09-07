@@ -125,6 +125,7 @@ dependencies {
     
     // LLM
     implementation(libs.litertlm)
+    implementation(libs.mlkit.genai.prompt)
     
     // UI & Coroutines
     implementation(libs.androidx.navigation.compose)

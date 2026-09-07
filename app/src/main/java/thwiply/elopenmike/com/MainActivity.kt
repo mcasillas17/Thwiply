@@ -17,6 +17,7 @@ import thwiply.elopenmike.com.ui.onboarding.OnboardingScreen
 import thwiply.elopenmike.com.ui.onboarding.OnboardingViewModel
 import thwiply.elopenmike.com.ui.theme.ThemeManager
 import thwiply.elopenmike.com.ui.theme.ThwiplyTheme
+import thwiply.elopenmike.com.llm.provider.InferenceCoordinator
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -24,6 +25,19 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var themeManager: ThemeManager
+
+    @Inject
+    lateinit var inferenceCoordinator: InferenceCoordinator
+
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        inferenceCoordinator.setForeground(isTopResumedActivity)
+    }
+
+    override fun onPause() {
+        inferenceCoordinator.setForeground(false)
+        super.onPause()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

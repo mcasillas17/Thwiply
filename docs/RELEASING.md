@@ -3,6 +3,32 @@
 Thwiply alpha tags publish minified, persistently signed APKs for one Android
 ABI at a time. The workflow never publishes a universal APK.
 
+## Gemini Nano policy and device gates
+
+Nano is an optional **foreground setup/Lab** provider, not a background
+notification-triage backend. Keep Qwen available without automatic fallback or
+download. Before distributing a Nano-enabled build, the owner must review the
+[ML Kit GenAI terms](https://developers.google.com/ml-kit/genai-terms), including
+the prohibition on clients directed toward **or likely accessed by people under
+18**, and the applicable use restrictions. The selection dialog's adult-use
+confirmation is not proof that the app's audience satisfies those terms.
+
+Review the [ML Kit privacy terms](https://developers.google.com/ml-kit/terms#privacy)
+and [Android data disclosure](https://developers.google.com/ml-kit/android-data-disclosure)
+for notices and distribution/Data safety answers. Input/output inference is local,
+but ML Kit sends usage/performance metrics and identifiers to Google and can
+initialize before provider selection. Do not reuse earlier "no analytics",
+"no other network access", or zero-download/zero-memory claims for this build.
+Selecting a stable model does not make the beta SDK a GA SDK or waive its terms.
+
+Record supported **physical-device** Nano evidence for the exact candidate using
+the [smoke runbook](ALPHA_SMOKE.md#gemini-nano-scenarios): default-stable
+availability, explicit preparation when needed, completed nonempty generation,
+Stop/background/provider-switch behavior and manual/Qwen preservation. Fake
+clients and emulator navigation do not satisfy this gate. Keep Nano acceptance
+and the existing FND-13 Qwen/minified requirements separate; neither replaces the
+other. No real Nano inference evidence has yet been recorded for this integration.
+
 ## Published artifacts
 
 For tag `v1.0.0-alpha.N`, the release contains:
@@ -144,7 +170,8 @@ is the evidence. It runs before anything is published.
 > Releases through `v1.0.0-alpha.3` used ephemeral debug signing. A tester with
 > one of those builds installed must **uninstall it once** before installing the
 > first persistently signed alpha. That uninstall removes local app data and any
-> downloaded model. Never perform it on someone's behalf, and never script it
+> app-managed Qwen weights. Android manages Nano's shared model independently;
+> Thwiply cannot delete it. Never perform an uninstall on someone's behalf or script it
 > into an install step - state the requirement and let the tester decide. Later
 > alphas signed by the persistent key update in place as their version code
 > increases.
@@ -363,7 +390,9 @@ until all of the following hold:
   artifacts;
 - the applicable roadmap gates are satisfied - in particular `FND-13`, which
   covers running the minified build on a real device and is not satisfied by any
-  amount of CI; and
+  amount of CI;
+- for Nano-enabled builds, the owner has satisfied the
+  [audience, disclosure and physical-device gates](#gemini-nano-policy-and-device-gates); and
 - `main` CI is green for the exact commit being tagged, including the
   **Android instrumentation** check.
 

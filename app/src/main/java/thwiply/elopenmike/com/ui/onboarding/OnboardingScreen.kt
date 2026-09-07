@@ -5,11 +5,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.res.painterResource
 import thwiply.elopenmike.com.R
@@ -17,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,25 +26,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.Role
 import androidx.hilt.navigation.compose.hiltViewModel
 import thwiply.elopenmike.com.llm.model.DownloadState
-import thwiply.elopenmike.com.llm.model.ModelPreset
+import thwiply.elopenmike.com.llm.model.ModelLoadState
+import thwiply.elopenmike.com.llm.provider.ModelProvider
+import thwiply.elopenmike.com.llm.provider.NanoState
+import thwiply.elopenmike.com.llm.provider.ProviderSelection
+import thwiply.elopenmike.com.ui.main.ProviderForegroundEffect
+import thwiply.elopenmike.com.ui.main.label
+import thwiply.elopenmike.com.ui.main.message
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
-import thwiply.elopenmike.com.ui.theme.ThemeMode
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 @Composable
 fun OnboardingScreen(
@@ -52,22 +50,50 @@ fun OnboardingScreen(
     viewModel: OnboardingViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
-    val selectedPreset by viewModel.selectedPreset.collectAsState()
-
-    OnboardingContent(state, selectedPreset, viewModel::selectPreset, viewModel::startDownload, onExit)
+    val selection by viewModel.selection.collectAsState()
+    val nanoState by viewModel.nanoState.collectAsState()
+    val busy by viewModel.busy.collectAsState()
+    val selecting by viewModel.selecting.collectAsState()
+    val failure by viewModel.failure.collectAsState()
+    val qwenLoadState by viewModel.qwenLoadState.collectAsState()
+    ProviderForegroundEffect(
+        viewModel.foreground, selection.provider to selecting,
+        onEnter = {
+            if (!selecting && selection.provider == ModelProvider.GEMINI_NANO) viewModel.checkNano()
+        },
+        onExit = viewModel::pauseDownload,
+    )
+    OnboardingContent(
+        state, selection, nanoState, busy || selecting,
+        viewModel::selectProvider, viewModel::startDownload,
+        viewModel::checkNano, viewModel::downloadNano,
+        viewModel::pauseDownload, onExit,
+        failure?.kind?.message(),
+        qwenLoadState,
+    )
 }
 
 @Composable
 fun OnboardingContent(
     state: DownloadState,
-    selectedPreset: ModelPreset,
-    onSelectPreset: (ModelPreset) -> Unit,
+    selection: ProviderSelection,
+    nanoState: NanoState,
+    busy: Boolean,
+    onSelectProvider: (ModelProvider) -> Unit,
     onStartDownload: () -> Unit,
+    onCheckNano: () -> Unit,
+    onDownloadNano: () -> Unit,
+    onStop: () -> Unit,
     onExit: () -> Unit,
+    failureMessage: Int?,
+    qwenLoadState: ModelLoadState = ModelLoadState.Loaded,
 ) {
     BackHandler(onBack = onExit)
 
     val isDownloading = state is DownloadState.Downloading
+    val controlsEnabled = !busy && !isDownloading
+    var confirmNanoDownload by remember { mutableStateOf(false) }
+    var confirmNanoUse by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -118,39 +144,77 @@ fun OnboardingContent(
             ValuePropsRow()
 
             // Model Selection Section
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.selectableGroup(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text(
-                    text = "Select On-Device Engine",
+                    text = stringResource(R.string.provider_select),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
-                // The release build exposes only models with pinned verification metadata.
-                ModelSelectionCard(
-                    preset = ModelPreset.QWEN_2_5_1_5B,
-                    isSelected = selectedPreset.id == ModelPreset.QWEN_2_5_1_5B.id,
-                    badgeColor = MaterialTheme.colorScheme.primary,
-                    badgeTextColor = MaterialTheme.colorScheme.onPrimary,
-                    onClick = { if (!isDownloading) onSelectPreset(ModelPreset.QWEN_2_5_1_5B) }
-                ) {
-                    Text(
-                        text = ModelPreset.QWEN_2_5_1_5B.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                ModelProvider.entries.forEach { provider ->
+                    ModelSelectionCard(
+                        provider = provider,
+                        isSelected = selection.provider == provider,
+                        enabled = controlsEnabled,
+                        onClick = {
+                            if (provider == ModelProvider.GEMINI_NANO && selection.provider != provider) {
+                                confirmNanoUse = true
+                            } else {
+                                onSelectProvider(provider)
+                            }
+                        },
                     )
                 }
             }
+            if (selection.failure != null) {
+                Text(stringResource(R.string.provider_preference_failed), color = MaterialTheme.colorScheme.error)
+            } else if (selection.provider == null) {
+                Text(stringResource(R.string.provider_loading))
+            }
+            failureMessage?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+            if (selection.provider == ModelProvider.QWEN) {
+                when (qwenLoadState) {
+                    ModelLoadState.Loading -> Text(stringResource(R.string.qwen_metadata_checking))
+                    is ModelLoadState.Failed -> Text(
+                        stringResource(R.string.qwen_metadata_failed), color = MaterialTheme.colorScheme.error,
+                    )
+                    ModelLoadState.Loaded -> Unit
+                }
+            }
 
-            // Download Status / Progress Area
-            AnimatedVisibility(visible = state !is DownloadState.Idle) {
+            AnimatedVisibility(visible = selection.provider == ModelProvider.QWEN && state !is DownloadState.Idle) {
                 DownloadStatusCard(state = state)
+            }
+            if (selection.provider == ModelProvider.GEMINI_NANO) {
+                Text(stringResource(R.string.provider_nano_foreground), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(if (nanoState == NanoState.Checking && !busy)
+                    R.string.nano_check_needed else nanoState.message()))
+                if ((nanoState == NanoState.Checking && busy) || nanoState == NanoState.Downloading) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                OutlinedButton(onClick = onCheckNano, enabled = controlsEnabled) {
+                    Text(stringResource(R.string.nano_check))
+                }
+                if (nanoState == NanoState.Downloadable) {
+                    Button(
+                        onClick = { confirmNanoDownload = true },
+                        enabled = controlsEnabled,
+                    ) { Text(stringResource(R.string.nano_prepare)) }
+                }
+            }
+            if (busy || isDownloading) {
+                Text(stringResource(R.string.provider_busy), style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = onStop) { Text(stringResource(R.string.action_stop)) }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // Primary Call to Action Button
-            Button(
+            if (selection.provider == ModelProvider.QWEN) Button(
                 onClick = { if (state is DownloadState.Success) onExit() else onStartDownload() },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -161,7 +225,7 @@ fun OnboardingContent(
                         ambientColor = ElectricCyanAccent,
                         spotColor = ElectricCyanAccent
                     ),
-                enabled = !isDownloading,
+                enabled = controlsEnabled && qwenLoadState != ModelLoadState.Loading,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -202,6 +266,45 @@ fun OnboardingContent(
                     }
                 }
             }
+            if (selection.provider != ModelProvider.QWEN) {
+                OutlinedButton(onClick = onExit) { Text(stringResource(R.string.setup_return)) }
+            }
+            if (confirmNanoUse) {
+                AlertDialog(
+                    onDismissRequest = { confirmNanoUse = false },
+                    title = { Text(stringResource(R.string.nano_use_title)) },
+                    text = { Text(stringResource(R.string.nano_use_consent)) },
+                    confirmButton = {
+                        TextButton(
+                            enabled = controlsEnabled,
+                            onClick = { confirmNanoUse = false; onSelectProvider(ModelProvider.GEMINI_NANO) },
+                        ) { Text(stringResource(R.string.nano_use_confirm)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmNanoUse = false }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    },
+                )
+            }
+            if (confirmNanoDownload) {
+                AlertDialog(
+                    onDismissRequest = { confirmNanoDownload = false },
+                    title = { Text(stringResource(R.string.nano_consent_title)) },
+                    text = { Text(stringResource(R.string.nano_consent_body)) },
+                    confirmButton = {
+                        TextButton(
+                            enabled = controlsEnabled && selection.provider == ModelProvider.GEMINI_NANO,
+                            onClick = { confirmNanoDownload = false; onDownloadNano() },
+                        ) { Text(stringResource(R.string.nano_consent_confirm)) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmNanoDownload = false }) {
+                            Text(stringResource(R.string.action_cancel))
+                        }
+                    },
+                )
+            }
         }
     }
 }
@@ -231,7 +334,7 @@ private fun HeroBanner() {
             )
 
             Text(
-                text = "Run the local inference lab on your device. Notification triage is not enabled in this alpha.",
+                text = stringResource(R.string.setup_hero),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -262,7 +365,7 @@ private fun GlowingSpiderWebIcon(
     ) {
         Image(
             painter = painterResource(id = R.drawable.ic_launcher_foreground),
-            contentDescription = "Thwiply Icon",
+            contentDescription = null,
             modifier = Modifier.size(58.dp)
         )
     }
@@ -276,17 +379,17 @@ private fun ValuePropsRow() {
     ) {
         ValuePropBadge(
             icon = Icons.Default.Security,
-            label = "Local AI",
+            label = stringResource(R.string.setup_local_ai),
             modifier = Modifier.weight(1f)
         )
         ValuePropBadge(
             icon = Icons.Default.Bolt,
-            label = "Verified Model",
+            label = stringResource(R.string.setup_explicit_choice),
             modifier = Modifier.weight(1f)
         )
         ValuePropBadge(
             icon = Icons.Default.TaskAlt,
-            label = "Alpha Lab",
+            label = stringResource(R.string.setup_alpha_lab),
             modifier = Modifier.weight(1f)
         )
     }
@@ -328,17 +431,18 @@ private fun ValuePropBadge(
 
 @Composable
 private fun ModelSelectionCard(
-    preset: ModelPreset,
+    provider: ModelProvider,
     isSelected: Boolean,
-    badgeColor: Color,
-    badgeTextColor: Color,
+    enabled: Boolean,
     onClick: () -> Unit,
-    content: @Composable () -> Unit
 ) {
     Surface(
-        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
+            .selectable(
+                selected = isSelected, enabled = enabled,
+                role = Role.RadioButton, onClick = onClick,
+            )
             .animateContentSize(),
         shape = RoundedCornerShape(18.dp),
         color = if (isSelected) {
@@ -371,27 +475,19 @@ private fun ModelSelectionCard(
                         modifier = Modifier.size(22.dp)
                     )
                     Text(
-                        text = preset.name,
+                        text = stringResource(provider.label()),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                     )
                 }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = badgeColor
-                ) {
-                    Text(
-                        text = preset.size,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = badgeTextColor,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
             }
 
-            content()
+            Text(
+                stringResource(if (provider == ModelProvider.QWEN)
+                    R.string.provider_qwen_description else R.string.provider_nano_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

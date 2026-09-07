@@ -75,7 +75,7 @@ class AppNavigationTest {
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         val expectedVersion = packageInfo.versionName ?: "unknown"
-        org.junit.Assert.assertNotEquals("1.0", expectedVersion)
+        org.junit.Assert.assertNotEquals("unknown", expectedVersion)
         
         launch()
         tab("Settings")

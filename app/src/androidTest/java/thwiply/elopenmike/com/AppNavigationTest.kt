@@ -26,6 +26,7 @@ import org.junit.runner.RunWith
 import thwiply.elopenmike.com.domain.cleanup.NotificationDataCleanupCoordinator
 import thwiply.elopenmike.com.data.local.ThwiplyDatabase
 import thwiply.elopenmike.com.data.repository.*
+import thwiply.elopenmike.com.data.preferences.*
 import thwiply.elopenmike.com.llm.engine.*
 import thwiply.elopenmike.com.llm.model.*
 import thwiply.elopenmike.com.llm.provider.*
@@ -240,7 +241,10 @@ class AppNavigationTest {
         )
         val selection = ProviderSelectionRepository(File(modelDirectory, "provider"), providerScope, Dispatchers.IO)
         runBlocking { selection.awaitLoaded() }
-        val settings = SettingsViewModel(ThemeManager(), models, selection)
+        val preferences = AppPreferencesRepository(
+            FilePreferenceStorage(File(modelDirectory, "preferences")), providerScope, Dispatchers.IO,
+        )
+        val settings = SettingsViewModel(ThemeManager(preferences, providerScope), models, selection)
         val deletion = NotificationDataSettingsViewModel(lifecycle)
         val engine = LlmEngineManager {
             object : ManagedEngine {
@@ -264,7 +268,7 @@ class AppNavigationTest {
         )
         coordinator.setForeground(true)
         val playground = PlaygroundViewModel(coordinator)
-        setup = OnboardingViewModel(coordinator, models::isModelAvailable) {
+        setup = OnboardingViewModel(coordinator, models::isModelAvailable, preferences) {
             if (downloadGate != null) coordinator.downloadQwen(preset) else flow {
                 downloadStarts++
                 downloads.value = DownloadState.Downloading(0)

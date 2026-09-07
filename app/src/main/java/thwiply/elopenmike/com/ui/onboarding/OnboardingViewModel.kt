@@ -21,16 +21,23 @@ import thwiply.elopenmike.com.llm.model.ModelLoadState
 import thwiply.elopenmike.com.llm.provider.InferenceCoordinator
 import thwiply.elopenmike.com.llm.provider.InferenceFailure
 import thwiply.elopenmike.com.llm.provider.ModelProvider
+import thwiply.elopenmike.com.data.preferences.AppPreferencesRepository
 
 @HiltViewModel
 class OnboardingViewModel internal constructor(
     private val coordinator: InferenceCoordinator,
     private val isModelAvailable: () -> Boolean,
+    private val preferenceRepository: AppPreferencesRepository,
     private val downloadModel: (ModelPreset) -> Flow<DownloadState>,
 ) : ViewModel() {
-    @Inject constructor(modelManager: ModelManager, coordinator: InferenceCoordinator) : this(
+    @Inject constructor(
+        modelManager: ModelManager,
+        coordinator: InferenceCoordinator,
+        preferences: AppPreferencesRepository,
+    ) : this(
         coordinator,
         modelManager::isModelAvailable,
+        preferences,
         coordinator::downloadQwen,
     )
 
@@ -43,6 +50,7 @@ class OnboardingViewModel internal constructor(
     val busy = coordinator.busy
     val foreground = coordinator.foreground
     val qwenLoadState = coordinator.qwenLoadState
+    val preferences = preferenceRepository.state
     private val _failure = MutableStateFlow<InferenceFailure?>(null)
     val failure = _failure.asStateFlow()
     private val _selecting = MutableStateFlow(false)
@@ -50,6 +58,14 @@ class OnboardingViewModel internal constructor(
     private var downloadJob: Job? = null
     private var providerJob: Job? = null
     private var selectionJob: Job? = null
+
+    fun acknowledgeModelSetupEducation() {
+        viewModelScope.launch { preferenceRepository.acknowledgeModelSetupEducation() }
+    }
+
+    fun reloadPreferences() {
+        viewModelScope.launch { preferenceRepository.reload() }
+    }
 
     init {
         viewModelScope.launch {

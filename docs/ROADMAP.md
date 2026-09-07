@@ -1,6 +1,6 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, and FND-12 complete; remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, FND-07, and FND-12 complete; FND-08 and other ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
 **Last updated:** 2026-09-06
 
 ## Product direction
@@ -35,7 +35,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Model-optional app shell | FND-02 complete | Today, Settings, and deletion controls are available without weights; optional setup returns to the previous tab, and Lab gates inference on the existing model/engine readiness contract |
 | Local LLM Lab | Foreground provider integration available; device evidence open | Qwen/LiteRT-LM and optional Nano/ML Kit share serialized operation ownership, cancellation/Stop and bounded streaming; metrics count Unicode code points, not chunks as tokens. Product-triage arbitration and real-model device proof remain open |
 | Optional Gemini Nano | Implementation present; physical acceptance blocked | Persisted explicit selection, SDK availability, separate preparation consent and foreground-only Lab exist; no automatic Qwen fallback/download and no Nano background-triage capability |
-| Product copy and privacy status | User-facing copy truthful; dead state remains | The UI says capture is unavailable, but unused notification/screenshot capture flags still default to enabled in `SettingsViewModel` |
+| App preferences and privacy status | FND-07 complete | Typed theme and versioned setup education persist with explicit failure/recovery states; unused capture flags and orphaned debug screens are removed. Preferences contain no notification content and never grant consent |
 | Durable task and decision data | Phase 1 delivered scope complete | Room v2, exported schemas, repositories, and restart tests exist; category projection and end-to-end correction application are not implemented |
 | Notification ingestion | Not started | No notification-access state, app allowlist, `NotificationListenerService`, normalizer, or ingestion queue exists |
 | Structured triage pipeline | Not started | Lab output is not connected to deterministic rules, a strict output schema, or persisted product state |
@@ -86,12 +86,13 @@ Future ingestion must not retain raw notification bodies to wait for Nano, or
 silently switch providers. A future triage design must expose this capability
 distinction and an explicit unavailable/review path.
 
-This work implements the foreground-Lab portions of ownership, cancellation,
-bounds and metrics. It does **not** complete FND-03 through FND-11, FND-13,
-FND-14, or any product phase. Qwen metadata is now loaded asynchronously with
+The Nano integration implements the foreground-Lab portions of ownership,
+cancellation, bounds and metrics. It did **not** complete the wider foundation
+tasks or any product phase. FND-07 subsequently delivered theme/education
+persistence separately, with evidence below. Qwen metadata is loaded asynchronously with
 explicit read failures, but restart weight adoption still checks length rather
-than revalidating the digest (FND-08). Theme/education persistence, broader
-download hardening, product-triage arbitration and physical/minified evidence
+than revalidating the digest (FND-08). Broader download hardening,
+product-triage arbitration and physical/minified evidence
 remain in their existing tasks. FND-01, FND-02 and FND-12 retain their completed
 status and evidence.
 
@@ -150,8 +151,8 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. `FND-01`, `FND-02`, and `FND-12` are complete. Start `FND-03` through
-   `FND-05`, `FND-07`, and `FND-14` in parallel where ownership permits.
+1. `FND-01`, `FND-02`, `FND-07`, and `FND-12` are complete. Start `FND-03`
+   through `FND-05`, `FND-08`, and `FND-14` in parallel where ownership permits.
 2. Complete `FND-06` after its resource prerequisite and complete the model and
    Lab chain `FND-08` through `FND-11`.
 3. Prove the shipped minified path with `FND-13`.
@@ -173,8 +174,8 @@ These decisions are prerequisites, not open implementation options:
 | FND-04 | Ready | Implement target SDK 36 edge-to-edge, status/navigation/IME insets, light/dark system-bar appearance, and adaptive phone/tablet/foldable layouts without changing product information architecture. | None | API 31 and 36 device tests cover gesture and three-button navigation, cutouts, IME use, rotation, and representative window sizes without clipped controls. |
 | FND-05 | Ready | Move user-facing copy, formatted counts, dates, accessibility labels, and errors into Android string/plural resources. Keep locale expansion separate until pilot scope chooses supported locales. | None | Android lint reports no production hardcoded-text violations; formatted/plural strings render correctly in unit or Compose tests. |
 | FND-06 | Blocked | Establish the accessibility baseline for existing surfaces: at least 48 dp interactive targets, meaningful state/action semantics, scalable text, contrast review, traversal order, and TalkBack paths for Today, Lab, onboarding, and Settings. Downstream features own their additional accessibility evidence. | FND-05 | Compose semantics tests and a documented TalkBack pass cover existing add, complete, delete, Lab generation/copy, model setup, and Settings flows. |
-| FND-07 | Ready | Add a typed preference repository for theme and durable education state; remove unused notification/screenshot capture flags and orphaned debug UI or isolate it to debug builds. Preferences never contain notification content. | None | Theme and education state survive process recreation; searches find no production capture placeholders; preference tests distinguish read/write failures from unset values. |
-| FND-08 | Blocked | Introduce explicit model states (`Missing`, `Verifying`, `Ready`, `Corrupt`, `Removing`, `Failed`), revalidate the active digest after restart off the main thread, and make every state visible without blocking manual features. | FND-02, FND-07 | Equal-length tampering and truncation are rejected after restart; original causes remain attached to failures; no JNI or full-file digest runs on the main thread. |
+| FND-07 | Complete | Add a typed preference repository for theme and durable education state; remove unused notification/screenshot capture flags and orphaned debug UI or isolate it to debug builds. Preferences never contain notification content. | None | 145 JVM and 44 API 36 ARM64 device tests passed; real process restarts restored Dark/Light and education v1 without changing provider bytes or granting consent. Failed reads, writes, resets, cancellation, races, and interrupted candidates are covered; obsolete capture/debug APIs are removed. See [FND-07 evidence](#fnd-07-evidence). |
+| FND-08 | Ready | Introduce explicit model states (`Missing`, `Verifying`, `Ready`, `Corrupt`, `Removing`, `Failed`), revalidate the active digest after restart off the main thread, and make every state visible without blocking manual features. | FND-02, FND-07 | Equal-length tampering and truncation are rejected after restart; original causes remain attached to failures; no JNI or full-file digest runs on the main thread. |
 | FND-09 | Blocked | Define single-engine ownership, off-main initialization, cancellation, stop, close, and arbitration between user-initiated Lab work and product triage. Never swallow coroutine cancellation or leak a conversation/native engine. | FND-08 | Fake-engine tests prove cancel/stop closes conversations, the mutex is released, user-visible states remain distinguishable, and one engine is active per process. |
 | FND-10 | Blocked | Make model download single-flight and resumable with validated range continuity, bounded/throttled progress, explicit cancellation, disk-space preflight, metered-network confirmation, timeouts, and user-initiated removal. | FND-07, FND-08 | Slow, partial, ignored-range, corrupt, low-space, metered, concurrent, cancel, restart, and remove cases pass without activating unverified bytes or reporting failure as success. |
 | FND-11 | Blocked | Correct Lab metrics and behavior: count characters or verified runtime tokens, bound prompt/output presentation, expose busy/stop states, reuse the engine arbitration contract, and keep Lab output separate from product persistence. | FND-09 | Metric tests use known streams and elapsed time; UI never labels chunks as tokens; Lab cancellation and contention states are visible and recoverable. |
@@ -255,6 +256,56 @@ physical-device proof. `FND-14` remains **Ready**, separate from FND-02: the roo
 LICENSE is still absent and Settings still displays `1.0.0 (Alpha)` rather than
 the packaged version. Owner provisioning/approval and suitable hardware are
 required before final smoke; all applicable release gates remain independent.
+
+#### FND-07 evidence
+
+Recorded on 2026-09-06:
+
+- [`AppPreferencesRepositoryTest`](../app/src/test/java/thwiply/elopenmike/com/data/preferences/AppPreferencesRepositoryTest.kt)
+  covers all theme values and education across repository recreation, missing
+  files versus malformed/unsupported/I/O/access failures, failed writes and
+  resets, nondestructive read recovery, rapid concurrent updates, initial-read
+  ordering, education-version changes, cancellation before/during commit and
+  during reads, and actual I/O-dispatcher thread ownership. Interrupted
+  candidates never replace saved values on read and are reclaimed by the next
+  write without touching neighboring provider files.
+- [`ThemeManagerTest`](../app/src/test/java/thwiply/elopenmike/com/ui/theme/ThemeManagerTest.kt)
+  verifies a recreated manager restores saved Dark mode and distinguishes
+  unavailable preferences from its temporary System rendering fallback.
+  [`PreferenceActivityTest`](../app/src/androidTest/java/thwiply/elopenmike/com/PreferenceActivityTest.kt)
+  uses the real activity, Hilt, and storage for theme/education recreation,
+  explanation replay, confirmed reset, and continued model-optional access.
+  It restores only preference bytes changed by its scenarios, not the installation
+  or other app data.
+- [`PreferenceStatusTest`](../app/src/androidTest/java/thwiply/elopenmike/com/PreferenceStatusTest.kt)
+  verifies resource-backed live-region errors without path/exception leakage,
+  including failed initial read followed by failed reset and successful read
+  recovery. [`ProviderControlsTest`](../app/src/androidTest/java/thwiply/elopenmike/com/ProviderControlsTest.kt)
+  confirms that acknowledged education bypasses neither Nano selection consent
+  nor the separate preparation consent.
+- The complete debug JVM suite ran **145 tests** with no failures; debug app/test
+  APK builds and `lintDebug` passed. The complete installed instrumentation suite
+  ran **44 tests** on an API 36 Google APIs ARM64 emulator with no failed/skipped
+  cases, preserving provider, navigation, Room, migration, backup, and retention
+  coverage. One earlier cold-boot attempt ended in a process-startup ANR before
+  tests; a successful real app launch and the subsequent complete run established
+  the reported result without clearing data.
+- Separate real-activity smoke selected Dark and Light and force-stopped/relaunched
+  the process after each choice, verifying different process IDs, the selected
+  theme, and rendered appearance. A third restart retained education v1 and
+  **About model setup** could reopen the explanation. Today and Settings remained
+  available without model weights. Provider-file bytes were unchanged, no
+  download or permission action was performed, and no installation/data erasure
+  was used. These observations are process-restoration evidence, not physical
+  Nano inference or signed/minified runtime acceptance.
+- Production searches find no obsolete notification/screenshot capture state or
+  orphaned debug screens. No model/provider, permission, retention, Gradle, or
+  wider lifecycle behavior changed. Preferences use a separate no-backup file,
+  not the notification-data deletion boundary.
+
+`FND-08` is now **Ready**, not implemented. `FND-03` through `FND-06`, `FND-09`
+through `FND-11`, `FND-13`, `FND-14`, and all other unrelated milestones retain
+their prior states and evidence.
 
 FND-12 evidence was recorded on 2026-09-06:
 

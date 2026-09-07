@@ -356,6 +356,71 @@ Reproduce the automated coverage locally:
   -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
 ```
 
+### Screen and application state ownership
+
+Every observable flow in Thwiply belongs to exactly one owner, and that owner decides when
+observation stops.
+
+| Owner | What it holds | When it stops |
+|---|---|---|
+| Screen | Today's Room observation of visible records, its single next-expiry timer, and the state it last rendered | shortly after the last lifecycle-aware collector stops (a 5 s grace, so a rotation or tab return reuses the same observation instead of opening a second one) |
+| ViewModel | Lab's provider-change reset, model setup's Qwen load-state watcher, filters, pending errors and input failures | when the owning `ViewModel` is cleared |
+| Application | retention cleanup, the daily maintenance job, provider selection, model load state, engine and Nano ownership | never because a screen left composition |
+
+Every screen reads state with `collectAsStateWithLifecycle()`, so a stopped screen collects
+nothing and a started one re-reads. Today goes further: its records are a `stateIn` flow shared by every collector, so
+leaving the tab, backgrounding the app, or briefly composing two copies of the screen during a
+transition can never open a second database observer or leave a timer running. Starting to
+collect is itself the visibility boundary — Compose collects at `STARTED`, earlier than Today's
+`RESUMED` entry callback — so a restarted subscription always reads at the current time.
+
+What Today last rendered lives exactly as long as the observation behind it. Inside the grace,
+a recreation or tab return keeps the content on screen. Past it, Today resets and reloads rather
+than replaying a snapshot nothing was observing — a record may have reached its retention, or
+Settings may have deleted the notification data, while the screen was away. While an observation
+is live, an expiry is re-checked per record against that row's own retention: the row past its
+retention is hidden immediately, one still within it keeps rendering, and manual tasks have no
+retention at all.
+
+The grace period keeps the shared subscription alive across a brief collector gap; it does not
+suppress a read. Today entry and every resume deliberately re-read at the current time, so
+re-entering Today issues one read when collection starts and another when the screen resumes.
+That is one extra local query per entry, traded for never rendering a record that expired while
+the screen was away.
+
+A cleanup run that Today started is application-owned: leaving the screen cannot cancel the
+delete, turn a failure into a success, or stop the daily job.
+
+**Lifecycle-aware collection is not Nano's foreground restriction.** Collection follows the
+`STARTED` lifecycle state and only decides when the UI observes data. Gemini Nano's platform
+rule is stricter and unrelated: inference is permitted only while Thwiply is the *top resumed*
+app, which `MainActivity.onTopResumedActivityChanged`/`onPause` report to `InferenceCoordinator`.
+A visible-but-not-top activity, and a foreground service, are both insufficient. That gate
+cancels in-flight model work; `collectAsStateWithLifecycle` never replaces it.
+
+```mermaid
+flowchart TD
+    resumed["Screen RESUMED"] -->|LifecycleResumeEffect| entry["onTodayEntered: cutoff = now, run shared cleanup"]
+    started["Screen STARTED"] -->|collectAsStateWithLifecycle| shared["stateIn WhileSubscribed(5s): cutoff = now on start"]
+    shared --> room["One Room observation at the current cutoff"]
+    shared --> recheck["Retained content re-checked against the new cutoff"]
+    shared --> timer["One timer for the earliest visible expiry"]
+    stopped["Screen STOPPED or removed"] -->|last collector gone| release["Room observation, timer and retained state released after 5s"]
+    entry --> cleanup["NotificationDataCleanupCoordinator on the application scope"]
+    cleanup --> durable["Delete survives the screen; failure is a nonblocking warning"]
+    topResumed["Top resumed activity"] -->|setForeground| nano["InferenceCoordinator: Nano/Qwen work allowed"]
+    lostTop["Lost top foreground"] -->|setForeground false| cancel["In-flight model operation cancelled"]
+```
+
+Reproduce the automated coverage locally:
+
+```bash
+./gradlew :app:testDebugUnitTest --tests 'thwiply.elopenmike.com.ui.today.*'
+./gradlew :app:pixel2api36DebugAndroidTest \
+  -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect \
+  -Pandroid.testInstrumentationRunnerArguments.class=thwiply.elopenmike.com.ui.today.TodayLifecycleObservationTest,thwiply.elopenmike.com.TodayLifecycleAppTest
+```
+
 ### Android instrumentation
 
 The full `:app` instrumentation suite runs on the Gradle Managed Device

@@ -54,7 +54,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +74,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -89,16 +89,18 @@ import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 fun TodayScreen(
     viewModel: TodayViewModel = hiltViewModel(),
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val selectedFilter by viewModel.selectedFilter.collectAsState()
-    val operationFailure by viewModel.operationFailure.collectAsState()
-    val taskInputFailure by viewModel.taskInputFailure.collectAsState()
-    val cleanupWarning by viewModel.cleanupWarning.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
+    val operationFailure by viewModel.operationFailure.collectAsStateWithLifecycle()
+    val taskInputFailure by viewModel.taskInputFailure.collectAsStateWithLifecycle()
+    val cleanupWarning by viewModel.cleanupWarning.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showAddDialog by remember { mutableStateOf(false) }
 
     // Entry and every resume are cleanup and visibility boundaries: a device that slept
     // through an expiry must not come back showing an expired notification-derived record.
+    // Nothing to undo on pause: the Room observation and its expiry timer are owned by the
+    // lifecycle-aware collection above, which stops them when this screen stops.
     LifecycleResumeEffect(viewModel) {
         viewModel.onTodayEntered()
         onPauseOrDispose { }

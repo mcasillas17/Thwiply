@@ -72,14 +72,12 @@ class AppNavigationTest {
 
     @Test fun missingModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("missing")
     @Test fun settingsDisplaysPackagedVersion() {
-        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
-        val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-        val expectedVersion = packageInfo.versionName ?: "unknown"
-        org.junit.Assert.assertNotEquals("unknown", expectedVersion)
+        val expectedVersion = BuildConfig.VERSION_NAME
+        org.junit.Assert.assertNotEquals("1.0", expectedVersion)
         
         launch()
         tab("Settings")
-        compose.onNodeWithText(context.getString(R.string.settings_version_label)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.settings_version_label)).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(expectedVersion).assertIsDisplayed()
     }
     @Test fun partialDownloadKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("partial")

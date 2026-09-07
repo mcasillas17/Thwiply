@@ -1,14 +1,13 @@
 package thwiply.elopenmike.com.ui.settings
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import thwiply.elopenmike.com.llm.model.ModelManager
 import thwiply.elopenmike.com.llm.provider.ProviderSelectionRepository
 import thwiply.elopenmike.com.ui.theme.ThemeManager
-import thwiply.elopenmike.com.ui.theme.ThemeMode
+import thwiply.elopenmike.com.data.preferences.ThemeMode
 import javax.inject.Inject
 
 @HiltViewModel
@@ -18,30 +17,20 @@ class SettingsViewModel @Inject constructor(
     selectionRepository: ProviderSelectionRepository,
 ) : ViewModel() {
 
-    val themeMode: StateFlow<ThemeMode> = themeManager.themeMode
+    val preferences = themeManager.preferences
     val activeModel = modelManager.activeModel
     val modelLoadState = modelManager.loadState
     val selection = selectionRepository.state
 
-    private val _notificationCaptureEnabled = MutableStateFlow(true)
-    val notificationCaptureEnabled: StateFlow<Boolean> = _notificationCaptureEnabled.asStateFlow()
-
-    private val _screenshotCaptureEnabled = MutableStateFlow(true)
-    val screenshotCaptureEnabled: StateFlow<Boolean> = _screenshotCaptureEnabled.asStateFlow()
-
     fun setThemeMode(mode: ThemeMode) {
-        themeManager.setThemeMode(mode)
+        viewModelScope.launch { themeManager.setThemeMode(mode) }
     }
 
-    fun setNotificationCapture(enabled: Boolean) {
-        _notificationCaptureEnabled.value = enabled
+    fun reloadPreferences() {
+        viewModelScope.launch { themeManager.reloadPreferences() }
     }
 
-    fun setScreenshotCapture(enabled: Boolean) {
-        _screenshotCaptureEnabled.value = enabled
-    }
-
-    fun isModelReady(): Boolean {
-        return modelManager.isModelAvailable()
+    fun resetPreferences() {
+        viewModelScope.launch { themeManager.resetPreferences() }
     }
 }

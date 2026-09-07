@@ -5,12 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-
-enum class ThemeMode {
-    SYSTEM,
-    LIGHT,
-    DARK
-}
+import thwiply.elopenmike.com.data.preferences.ThemeMode
 
 private val DarkColorScheme = darkColorScheme(
     primary = ElectricBluePrimaryDark,

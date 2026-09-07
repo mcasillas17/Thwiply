@@ -16,11 +16,38 @@ import thwiply.elopenmike.com.llm.provider.NanoState
 import thwiply.elopenmike.com.llm.provider.ProviderSelection
 import thwiply.elopenmike.com.ui.onboarding.OnboardingContent
 import thwiply.elopenmike.com.ui.theme.ThwiplyTheme
+import thwiply.elopenmike.com.data.preferences.*
 
 /** Deterministic UI callbacks, not an AICore availability or inference test. */
 @RunWith(AndroidJUnit4::class)
 class ProviderControlsTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun acknowledgedEducationStillRequiresBothNanoConsents() {
+        var selected by mutableStateOf(ModelProvider.QWEN)
+        var downloads = 0
+        compose.setContent {
+            ThwiplyTheme {
+                OnboardingContent(
+                    DownloadState.Idle, ProviderSelection(selected), NanoState.Downloadable, false,
+                    { selected = it }, { error("No Qwen download") }, {}, { downloads++ },
+                    {}, {}, null,
+                    preferences = PreferenceState(AppPreferences(modelSetupEducationVersion = MODEL_SETUP_EDUCATION_VERSION)),
+                )
+            }
+        }
+        compose.onNodeWithText(text(R.string.setup_optional_description)).assertDoesNotExist()
+        compose.onNodeWithText(text(R.string.education_show)).performClick()
+        compose.onNodeWithText(text(R.string.setup_optional_description)).assertIsDisplayed()
+        compose.onNodeWithText("Gemini Nano").performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.nano_use_consent)).assertIsDisplayed()
+        compose.runOnIdle { assertEquals(0, downloads); assertEquals(ModelProvider.QWEN, selected) }
+        compose.onNodeWithText(text(R.string.nano_use_confirm)).performClick()
+        compose.onNodeWithText(text(R.string.nano_prepare)).performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.nano_consent_body)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.action_cancel)).performClick()
+        compose.runOnIdle { assertEquals(0, downloads) }
+    }
 
     @Test fun sharedForegroundFailureDoesNotMisidentifyTheProvider() {
         val message = text(R.string.inference_background)

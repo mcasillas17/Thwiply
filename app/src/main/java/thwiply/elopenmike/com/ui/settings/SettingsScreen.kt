@@ -22,7 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
-import thwiply.elopenmike.com.ui.theme.ThemeMode
+import thwiply.elopenmike.com.data.preferences.ThemeMode
+import thwiply.elopenmike.com.ui.preferences.PreferenceStatus
 import thwiply.elopenmike.com.ui.main.label
 import thwiply.elopenmike.com.llm.model.ModelLoadState
 
@@ -33,12 +34,14 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     notificationDataViewModel: NotificationDataSettingsViewModel = hiltViewModel(),
 ) {
-    val themeMode by viewModel.themeMode.collectAsState()
+    val preferences by viewModel.preferences.collectAsState()
+    val themeMode = preferences.values?.theme
     val activeModel by viewModel.activeModel.collectAsState()
     val selection by viewModel.selection.collectAsState()
     val modelLoadState by viewModel.modelLoadState.collectAsState()
     val notificationDataState by notificationDataViewModel.state.collectAsState()
     var confirmDeleteNotificationData by remember { mutableStateOf(false) }
+    var confirmResetPreferences by remember { mutableStateOf(false) }
 
     val uriHandler = LocalUriHandler.current
 
@@ -77,6 +80,12 @@ fun SettingsScreen(
             // Section 1: Appearance & Theme
             SettingsSection(title = "Appearance") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PreferenceStatus(preferences, viewModel::reloadPreferences)
+                    if (preferences.failure != null) {
+                        TextButton(onClick = { confirmResetPreferences = true }) {
+                            Text(stringResource(R.string.preferences_reset))
+                        }
+                    }
                     Text(
                         text = "App Theme",
                         style = MaterialTheme.typography.bodyMedium,
@@ -87,29 +96,32 @@ fun SettingsScreen(
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                         SegmentedButton(
                             selected = themeMode == ThemeMode.SYSTEM,
+                            enabled = preferences.canUpdate,
                             onClick = { viewModel.setThemeMode(ThemeMode.SYSTEM) },
                             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 3),
                             icon = { Icon(Icons.Default.BrightnessAuto, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         ) {
-                            Text("System", style = MaterialTheme.typography.labelSmall)
+                            Text(stringResource(R.string.theme_system), style = MaterialTheme.typography.labelSmall)
                         }
 
                         SegmentedButton(
                             selected = themeMode == ThemeMode.LIGHT,
+                            enabled = preferences.canUpdate,
                             onClick = { viewModel.setThemeMode(ThemeMode.LIGHT) },
                             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 3),
                             icon = { Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         ) {
-                            Text("Light", style = MaterialTheme.typography.labelSmall)
+                            Text(stringResource(R.string.theme_light), style = MaterialTheme.typography.labelSmall)
                         }
 
                         SegmentedButton(
                             selected = themeMode == ThemeMode.DARK,
+                            enabled = preferences.canUpdate,
                             onClick = { viewModel.setThemeMode(ThemeMode.DARK) },
                             shape = SegmentedButtonDefaults.itemShape(index = 2, count = 3),
                             icon = { Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         ) {
-                            Text("Dark", style = MaterialTheme.typography.labelSmall)
+                            Text(stringResource(R.string.theme_dark), style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -291,6 +303,25 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+
+    if (confirmResetPreferences) {
+        AlertDialog(
+            onDismissRequest = { confirmResetPreferences = false },
+            title = { Text(stringResource(R.string.preferences_reset)) },
+            text = { Text(stringResource(R.string.preferences_reset_description)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmResetPreferences = false
+                    viewModel.resetPreferences()
+                }) { Text(stringResource(R.string.preferences_reset_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmResetPreferences = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 
     if (confirmDeleteNotificationData) {

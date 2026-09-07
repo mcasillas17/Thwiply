@@ -239,6 +239,15 @@ exact 30-day timestamp, and none of it is a forensic secure erase: SQLite can re
 pages until they are reused. Settings ▸ **Delete notification data and rules** remains the
 immediate, explicit deletion path; expiry cleanup never invokes it as a fallback.
 
+<div align="center">
+  <img src="docs/images/today-cleanup-warning-light.png" width="300"
+       alt="Today in light theme showing the cleanup warning 'Thwiply couldn't remove expired notification data. Expired items stay hidden and your tasks are unaffected.' with a Retry cleanup action, above a visible manual task" />
+  <img src="docs/images/today-cleanup-warning-dark.png" width="300"
+       alt="The same Today screen and cleanup warning in dark theme" />
+  <p><em>The nonblocking cleanup warning in light and dark themes. Synthetic manual task;
+  the retention delete was forced to fail on a debug build to capture this state.</em></p>
+</div>
+
 **Failure behavior.** A cleanup failure never blocks Today: manual tasks stay listed and
 usable, expired notification records stay hidden, and a nonblocking warning offers **Retry
 cleanup**. A record *read* failure is separate and still renders the explicit storage-error

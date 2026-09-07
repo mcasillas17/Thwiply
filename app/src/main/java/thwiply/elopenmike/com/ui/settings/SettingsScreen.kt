@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 import thwiply.elopenmike.com.data.preferences.ThemeMode
 import thwiply.elopenmike.com.ui.preferences.PreferenceStatus
@@ -34,12 +35,12 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     notificationDataViewModel: NotificationDataSettingsViewModel = hiltViewModel(),
 ) {
-    val preferences by viewModel.preferences.collectAsState()
+    val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     val themeMode = preferences.values?.theme
-    val activeModel by viewModel.activeModel.collectAsState()
-    val selection by viewModel.selection.collectAsState()
-    val modelLoadState by viewModel.modelLoadState.collectAsState()
-    val notificationDataState by notificationDataViewModel.state.collectAsState()
+    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val modelLoadState by viewModel.modelLoadState.collectAsStateWithLifecycle()
+    val notificationDataState by notificationDataViewModel.state.collectAsStateWithLifecycle()
     var confirmDeleteNotificationData by remember { mutableStateOf(false) }
     var confirmResetPreferences by remember { mutableStateOf(false) }
 

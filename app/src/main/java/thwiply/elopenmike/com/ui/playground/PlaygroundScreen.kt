@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.llm.provider.ModelProvider
 import thwiply.elopenmike.com.llm.provider.ProviderReadiness
 import thwiply.elopenmike.com.ui.main.ProviderForegroundEffect
@@ -33,19 +34,19 @@ fun PlaygroundScreen(
     onModelSetup: () -> Unit,
     viewModel: PlaygroundViewModel = hiltViewModel()
 ) {
-    val readiness by viewModel.readiness.collectAsState()
-    val selection by viewModel.selection.collectAsState()
-    val busy by viewModel.busy.collectAsState()
-    val stopped by viewModel.stopped.collectAsState()
-    val generationFailure by viewModel.generationFailure.collectAsState()
+    val readiness by viewModel.readiness.collectAsStateWithLifecycle()
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val stopped by viewModel.stopped.collectAsStateWithLifecycle()
+    val generationFailure by viewModel.generationFailure.collectAsStateWithLifecycle()
     ProviderForegroundEffect(
         viewModel.foreground, selection.provider, viewModel::prepareEngine, viewModel::stop,
     )
     val isInit = readiness == ProviderReadiness.Initializing || (readiness == ProviderReadiness.Checking && busy)
     val isReady = readiness == ProviderReadiness.Ready
-    val isGenerating by viewModel.isGenerating.collectAsState()
-    val output by viewModel.output.collectAsState()
-    val metrics by viewModel.metrics.collectAsState()
+    val isGenerating by viewModel.isGenerating.collectAsStateWithLifecycle()
+    val output by viewModel.output.collectAsStateWithLifecycle()
+    val metrics by viewModel.metrics.collectAsStateWithLifecycle()
 
     var prompt by remember { mutableStateOf("Don't forget to review the pull request before our 3pm team meeting!") }
     var isJsonMode by remember { mutableStateOf(true) }

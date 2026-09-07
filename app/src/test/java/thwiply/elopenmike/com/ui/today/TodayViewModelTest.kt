@@ -3,8 +3,13 @@ package thwiply.elopenmike.com.ui.today
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -304,10 +309,10 @@ class TodayViewModelTest {
                 resultFor = { now ->
                     if (now < EXPIRY) {
                         RepositoryResult.Success(
-                            VisibleTriageRecords(listOf(manual, notificationRecord2()), null),
+                            VisibleTriageRecords(listOf(manual, notificationRecord2())),
                         )
                     } else {
-                        RepositoryResult.Success(VisibleTriageRecords(listOf(manual), null))
+                        RepositoryResult.Success(VisibleTriageRecords(listOf(manual)))
                     }
                 },
             )
@@ -334,9 +339,11 @@ class TodayViewModelTest {
         val repository = FakeTriageRepository(
             resultFor = { now ->
                 if (now < EXPIRY) {
-                    RepositoryResult.Success(VisibleTriageRecords(listOf(expiring), EXPIRY))
+                    RepositoryResult.Success(
+                        VisibleTriageRecords(listOf(expiring), mapOf(expiring.item.id to EXPIRY)),
+                    )
                 } else {
-                    RepositoryResult.Success(VisibleTriageRecords(emptyList(), null))
+                    RepositoryResult.Success(VisibleTriageRecords(emptyList()))
                 }
             },
         )
@@ -358,10 +365,335 @@ class TodayViewModelTest {
         assertEquals(TodayUiState.Empty, viewModel.uiState.value)
     }
 
+    @Test
+    fun `a screen that never collects starts no room observation`() = runTest {
+        val repository = FakeTriageRepository()
+
+        todayViewModel(repository, collectState = false)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<Long>(), repository.queryTimes)
+        assertEquals(0, repository.activeSubscriptions)
+    }
+
+    @Test
+    fun `two collectors share a single room observation`() = runTest {
+        val repository = FakeTriageRepository(listOf(manualRecord()))
+        val viewModel = todayViewModel(repository)
+
+        collectUiState(viewModel)
+        advanceUntilIdle()
+
+        assertEquals(1, repository.activeSubscriptions)
+        assertEquals(1, repository.peakSubscriptions)
+        assertEquals(listOf(NOW), repository.queryTimes)
+    }
+
+    @Test
+    fun `stopping the last collector cancels the room observation`() = runTest {
+        val repository = FakeTriageRepository(listOf(manualRecord()))
+        val viewModel = todayViewModel(repository, collectState = false)
+        val collector = collectUiState(viewModel)
+        viewModel.onTodayEntered()
+        advanceUntilIdle()
+        assertEquals(1, repository.activeSubscriptions)
+
+        collector.cancel()
+        advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS + 1)
+        runCurrent()
+
+        assertEquals(0, repository.activeSubscriptions)
+    }
+
+    @Test
+    fun `a stopped screen keeps no expiry timer alive`() = runTest {
+        // The expiry lands after the stop timeout, so the timer is cancelled, never raced.
+        val lateExpiry = NOW + TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS * 2
+        val repository = FakeTriageRepository(
+            resultFor = { now ->
+                if (now < lateExpiry) {
+                    RepositoryResult.Success(
+                        VisibleTriageRecords(
+                            listOf(notificationRecord()),
+                            mapOf(notificationRecord().item.id to lateExpiry),
+                        ),
+                    )
+                } else {
+                    RepositoryResult.Success(VisibleTriageRecords(emptyList()))
+                }
+            },
+        )
+        val viewModel = todayViewModel(repository, collectState = false)
+        val collector = collectUiState(viewModel)
+        viewModel.onTodayEntered()
+        runCurrent()
+        assertEquals(listOf(NOW), repository.queryTimes)
+
+        collector.cancel()
+        advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS + 1)
+        runCurrent()
+        clock.advanceTo(lateExpiry + 1)
+        advanceTimeBy(lateExpiry + 1 - NOW)
+        runCurrent()
+
+        // The timer belonged to the stopped screen, so no refresh read was issued.
+        assertEquals(listOf(NOW), repository.queryTimes)
+        assertEquals(0, repository.activeSubscriptions)
+    }
+
+    @Test
+    fun `a collector returning inside the grace period keeps the same observation`() = runTest {
+        val repository = FakeTriageRepository(listOf(manualRecord()))
+        val viewModel = todayViewModel(repository, enterToday = false, collectState = false)
+        val collector = collectUiState(viewModel)
+        runCurrent()
+        assertEquals(listOf(NOW), repository.queryTimes)
+
+        // A recreation or tab change drops the collector for less than the grace period.
+        collector.cancel()
+        advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS / 2)
+        runCurrent()
+        clock.advanceTo(NOW + 120_000)
+        collectUiState(viewModel)
+        runCurrent()
+
+        // The observation was never released, so it is not reopened or re-read either.
+        assertEquals(listOf(NOW), repository.queryTimes)
+        assertEquals(1, repository.activeSubscriptions)
+        assertEquals(1, repository.peakSubscriptions)
+    }
+
+    @Test
+    fun `restarting then resuming reads at each boundary through one observation`() = runTest {
+        val repository = FakeTriageRepository(listOf(manualRecord()))
+        val viewModel = todayViewModel(repository, collectState = false)
+        val collector = collectUiState(viewModel)
+        viewModel.onTodayEntered()
+        runCurrent()
+
+        collector.cancel()
+        advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS + 1)
+        runCurrent()
+        // Production order and timing: STARTED restarts collection first, RESUMED calls back
+        // a moment later, so the two boundaries carry different clock readings.
+        clock.advanceTo(NOW + 120_000)
+        collectUiState(viewModel)
+        runCurrent()
+        clock.advanceTo(NOW + 120_010)
+        viewModel.onTodayEntered()
+        runCurrent()
+
+        // Each boundary reads at its own current time - Today entry always refreshes
+        // visibility - and neither opens a second observation.
+        assertEquals(listOf(NOW, NOW + 120_000, NOW + 120_010), repository.queryTimes)
+        assertEquals(1, repository.activeSubscriptions)
+        assertEquals(1, repository.peakSubscriptions)
+    }
+
+    @Test
+    fun `a restarted subscription reads at the current time before any resume callback`() =
+        runTest {
+            val repository = FakeTriageRepository(listOf(manualRecord()))
+            val viewModel = todayViewModel(repository, enterToday = false, collectState = false)
+            val collector = collectUiState(viewModel)
+            runCurrent()
+            assertEquals(listOf(NOW), repository.queryTimes)
+
+            collector.cancel()
+            advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS + 1)
+            runCurrent()
+            clock.advanceTo(NOW + 120_000)
+            collectUiState(viewModel)
+            runCurrent()
+
+            // No onTodayEntered() here: starting to collect is itself a visibility boundary.
+            assertEquals(listOf(NOW, NOW + 120_000), repository.queryTimes)
+        }
+
+    @Test
+    fun `a subscription restarted after an expiry reloads instead of replaying its snapshot`() =
+        runTest {
+            val manual = manualRecord()
+            val repository = FakeTriageRepository(
+                flowFor = { now ->
+                    if (now < EXPIRY) {
+                        MutableStateFlow(
+                            RepositoryResult.Success(
+                                VisibleTriageRecords(
+                                    listOf(manual, notificationRecord2()),
+                                    mapOf(notificationRecord2().item.id to EXPIRY),
+                                ),
+                            ),
+                        )
+                    } else {
+                        // A real Room re-read is not instantaneous.
+                        flow {
+                            delay(50)
+                            emit(
+                                RepositoryResult.Success(
+                                    VisibleTriageRecords(listOf(manual)),
+                                ),
+                            )
+                        }
+                    }
+                },
+            )
+            val viewModel = todayViewModel(repository, enterToday = false, collectState = false)
+            val collector = collectUiState(viewModel)
+            runCurrent()
+            assertEquals(2, (viewModel.uiState.value as TodayUiState.Content).tasks.size)
+
+            collector.cancel()
+            advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS + 1)
+            runCurrent()
+            // The device slept past the expiry while nothing was collecting.
+            clock.advanceTo(EXPIRY)
+            collectUiState(viewModel)
+            runCurrent()
+
+            // Nothing observed the old snapshot any more, so it is reloaded, never replayed.
+            assertEquals(TodayUiState.Loading, viewModel.uiState.value)
+
+            advanceTimeBy(50)
+            runCurrent()
+            assertEquals(
+                listOf(manual.item.id),
+                (viewModel.uiState.value as TodayUiState.Content).tasks.map(TaskItem::id),
+            )
+        }
+
+    @Test
+    fun `a released snapshot is never replayed after the data behind it changed`() = runTest {
+        val manual = manualRecord()
+        val notification = notificationRecord2()
+        var visible = listOf(manual, notification)
+        val repository = FakeTriageRepository(resultFor = { RepositoryResult.Success(VisibleTriageRecords(visible)) })
+        val viewModel = todayViewModel(repository, enterToday = false, collectState = false)
+        val collector = collectUiState(viewModel)
+        runCurrent()
+        assertEquals(2, (viewModel.uiState.value as TodayUiState.Content).tasks.size)
+
+        // Today leaves composition, its observation closes, and Settings deletes the
+        // notification data while nothing is observing.
+        collector.cancel()
+        advanceTimeBy(TodayViewModel.SUBSCRIPTION_STOP_TIMEOUT_MS + 1)
+        runCurrent()
+        visible = listOf(manual)
+
+        // Returning must not replay a snapshot that no observation stood behind.
+        assertEquals(TodayUiState.Loading, viewModel.uiState.value)
+        collectUiState(viewModel)
+        runCurrent()
+        assertEquals(
+            listOf(manual.item.id),
+            (viewModel.uiState.value as TodayUiState.Content).tasks.map(TaskItem::id),
+        )
+    }
+
+    @Test
+    fun `a stale snapshot drops only the notification row that actually expired`() = runTest {
+        val manual = manualRecord()
+        val early = notificationRecord(id = "item-3")
+        val late = notificationRecord2()
+        val lateExpiry = EXPIRY + 60_000
+        val repository = FakeTriageRepository(
+            flowFor = { now ->
+                if (now < EXPIRY) {
+                    MutableStateFlow(
+                        RepositoryResult.Success(
+                            VisibleTriageRecords(
+                                listOf(manual, early, late),
+                                mapOf(early.item.id to EXPIRY, late.item.id to lateExpiry),
+                            ),
+                        ),
+                    )
+                } else {
+                    // A real Room re-read is not instantaneous.
+                    flow {
+                        delay(50)
+                        emit(
+                            RepositoryResult.Success(
+                                VisibleTriageRecords(
+                                    listOf(manual, late),
+                                    mapOf(late.item.id to lateExpiry),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            },
+        )
+        val viewModel = todayViewModel(repository, enterToday = false)
+        runCurrent()
+        assertEquals(3, (viewModel.uiState.value as TodayUiState.Content).tasks.size)
+
+        clock.advanceTo(EXPIRY)
+        advanceTimeBy(EXPIRY - NOW)
+        runCurrent()
+
+        // Only the row past its own retention is hidden; the later one keeps rendering.
+        assertEquals(
+            listOf(manual.item.id, late.item.id),
+            (viewModel.uiState.value as TodayUiState.Content).tasks.map(TaskItem::id),
+        )
+    }
+
+    @Test
+    fun `a snapshot read before an expiry never renders the expired notification row`() = runTest {
+        val manual = manualRecord()
+        val repository = FakeTriageRepository(
+            flowFor = { now ->
+                if (now < EXPIRY) {
+                    MutableStateFlow(
+                        RepositoryResult.Success(
+                            VisibleTriageRecords(
+                                listOf(manual, notificationRecord2()),
+                                mapOf(notificationRecord2().item.id to EXPIRY),
+                            ),
+                        ),
+                    )
+                } else {
+                    // A real Room re-read is not instantaneous; the stale snapshot must not show.
+                    flow {
+                        delay(50)
+                        emit(RepositoryResult.Success(VisibleTriageRecords(listOf(manual))))
+                    }
+                }
+            },
+        )
+        val viewModel = todayViewModel(repository)
+        runCurrent()
+        assertEquals(2, (viewModel.uiState.value as TodayUiState.Content).tasks.size)
+
+        clock.advanceTo(EXPIRY)
+        advanceTimeBy(EXPIRY - NOW)
+        runCurrent()
+
+        assertEquals(
+            listOf(manual.item.id),
+            (viewModel.uiState.value as TodayUiState.Content).tasks.map(TaskItem::id),
+        )
+    }
+
+    @Test
+    fun `cleanup started by Today survives the screen it was started from`() = runTest {
+        val lifecycleRepository = FakeLifecycleRepository()
+        val repository = FakeTriageRepository()
+        val viewModel = todayViewModel(repository, lifecycleRepository, collectState = false)
+        val collector = collectUiState(viewModel)
+        viewModel.onTodayEntered()
+
+        collector.cancel()
+        advanceUntilIdle()
+
+        assertEquals(listOf(NOW), lifecycleRepository.purgeTimes)
+    }
+
     private fun TestScope.todayViewModel(
         repository: TriageRepository,
         lifecycleRepository: NotificationDataLifecycleRepository = FakeLifecycleRepository(),
         enterToday: Boolean = true,
+        collectState: Boolean = true,
     ) = TodayViewModel(
         triageRepository = repository,
         cleanupCoordinator = NotificationDataCleanupCoordinator(
@@ -373,8 +705,13 @@ class TodayViewModelTest {
         ),
         clock = clock,
     ).also { viewModel ->
+        // A started screen collects; the collector, not the entry call, owns the subscription.
+        if (collectState) collectUiState(viewModel)
         if (enterToday) viewModel.onTodayEntered()
     }
+
+    private fun TestScope.collectUiState(viewModel: TodayViewModel) =
+        backgroundScope.launch { viewModel.uiState.collect {} }
 
     private fun purgeFailure() = RepositoryResult.Failure(
         operation = StorageOperation.PURGE_EXPIRED_NOTIFICATION_DATA,
@@ -399,7 +736,7 @@ class TodayViewModelTest {
         id = "item-2",
     )
 
-    private fun notificationRecord() = record(
+    private fun notificationRecord(id: String = "item-1") = record(
         source = SourceReference.notification(
             packageName = "com.example.messages",
             appLabel = "Messages",
@@ -407,6 +744,7 @@ class TodayViewModelTest {
         ),
         title = "Call Alex",
         explanation = "Direct request",
+        id = id,
     )
 
     private fun record(
@@ -445,14 +783,23 @@ class TodayViewModelTest {
     private class FakeTriageRepository(
         initialRecords: List<TriageRecord> = emptyList(),
         initialResult: RepositoryResult<VisibleTriageRecords> = RepositoryResult.Success(
-            VisibleTriageRecords(initialRecords, null),
+            VisibleTriageRecords(initialRecords),
         ),
         private val resultFor: (Long) -> RepositoryResult<VisibleTriageRecords> = { initialResult },
+        private val flowFor: (Long) -> Flow<RepositoryResult<VisibleTriageRecords>> = { now ->
+            MutableStateFlow(resultFor(now))
+        },
         private val createResult: RepositoryResult<Unit> = RepositoryResult.Success(Unit),
         private val completionResult: RepositoryResult<Unit> = RepositoryResult.Success(Unit),
         private val deleteResult: RepositoryResult<Unit> = RepositoryResult.Success(Unit),
     ) : TriageRepository {
         val queryTimes = mutableListOf<Long>()
+
+        /** Room observations currently collected, and the most ever collected at once. */
+        var activeSubscriptions = 0
+            private set
+        var peakSubscriptions = 0
+            private set
         val createdRecords = mutableListOf<TriageRecord>()
         val completionIds = mutableListOf<String>()
         val completionTimes = mutableListOf<Long?>()
@@ -460,10 +807,13 @@ class TodayViewModelTest {
 
         override fun observeVisibleTriageRecords(
             nowEpochMillis: Long,
-        ): Flow<RepositoryResult<VisibleTriageRecords>> {
-            queryTimes += nowEpochMillis
-            return MutableStateFlow(resultFor(nowEpochMillis))
-        }
+        ): Flow<RepositoryResult<VisibleTriageRecords>> = flowFor(nowEpochMillis)
+            .onStart {
+                queryTimes += nowEpochMillis
+                activeSubscriptions += 1
+                peakSubscriptions = maxOf(peakSubscriptions, activeSubscriptions)
+            }
+            .onCompletion { activeSubscriptions -= 1 }
 
         override suspend fun createTriageRecord(record: TriageRecord): RepositoryResult<Unit> {
             createdRecords += record

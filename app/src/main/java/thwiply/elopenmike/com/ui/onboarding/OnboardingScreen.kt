@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.Role
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.llm.model.DownloadState
 import thwiply.elopenmike.com.llm.model.ModelLoadState
 import thwiply.elopenmike.com.llm.provider.ModelProvider
@@ -52,14 +53,14 @@ fun OnboardingScreen(
     onExit: () -> Unit,
     viewModel: OnboardingViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val selection by viewModel.selection.collectAsState()
-    val nanoState by viewModel.nanoState.collectAsState()
-    val busy by viewModel.busy.collectAsState()
-    val selecting by viewModel.selecting.collectAsState()
-    val failure by viewModel.failure.collectAsState()
-    val qwenLoadState by viewModel.qwenLoadState.collectAsState()
-    val preferences by viewModel.preferences.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val nanoState by viewModel.nanoState.collectAsStateWithLifecycle()
+    val busy by viewModel.busy.collectAsStateWithLifecycle()
+    val selecting by viewModel.selecting.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val qwenLoadState by viewModel.qwenLoadState.collectAsStateWithLifecycle()
+    val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     ProviderForegroundEffect(
         viewModel.foreground, selection.provider to selecting,
         onEnter = {

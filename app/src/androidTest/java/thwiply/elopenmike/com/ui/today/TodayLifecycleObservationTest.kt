@@ -4,11 +4,28 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.material3.Text
+import kotlinx.coroutines.CompletableDeferred
+import thwiply.elopenmike.com.ui.main.MainAppContent
+import thwiply.elopenmike.com.ui.main.MainTab
+import thwiply.elopenmike.com.ui.main.AppViewport
+import thwiply.elopenmike.com.ui.main.LocalCompactHeight
 import androidx.lifecycle.Lifecycle
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +36,7 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onCompletion
@@ -43,6 +61,9 @@ import thwiply.elopenmike.com.domain.triage.NotificationDataLifecycleRepository
 import thwiply.elopenmike.com.domain.triage.RepositoryResult
 import thwiply.elopenmike.com.domain.triage.TriageRepository
 import thwiply.elopenmike.com.domain.triage.VisibleTriageRecords
+import thwiply.elopenmike.com.domain.triage.StorageOperation
+import thwiply.elopenmike.com.domain.triage.StorageFailureReason
+import thwiply.elopenmike.com.R
 
 /**
  * Real Compose Today over real Room, driven by real activity lifecycle transitions. The
@@ -62,6 +83,8 @@ class TodayLifecycleObservationTest {
     private lateinit var database: ThwiplyDatabase
     private lateinit var repository: CountingTriageRepository
     private lateinit var viewModel: TodayViewModel
+    @Volatile private var failCleanup = false
+    @Volatile private var cleanupCalls = 0
 
     @Before
     fun setUp() {
@@ -76,7 +99,17 @@ class TodayLifecycleObservationTest {
         repository = CountingTriageRepository(RoomTriageRepository(database.triageDao()))
         viewModel = TodayViewModel(
             repository,
-            NotificationDataCleanupCoordinator(NeverDeletingRepository, clock, applicationScope),
+            NotificationDataCleanupCoordinator(
+                object : NotificationDataLifecycleRepository by NeverDeletingRepository {
+                    override suspend fun purgeExpiredNotificationData(nowEpochMillis: Long): RepositoryResult<Int> {
+                        cleanupCalls++
+                        return if (failCleanup) RepositoryResult.Failure(
+                            StorageOperation.PURGE_EXPIRED_NOTIFICATION_DATA, StorageFailureReason.DATABASE, null,
+                        ) else NeverDeletingRepository.purgeExpiredNotificationData(nowEpochMillis)
+                    }
+                },
+                clock, applicationScope,
+            ),
             clock,
         )
     }
@@ -94,6 +127,213 @@ class TodayLifecycleObservationTest {
         }
         applicationScope.cancel()
         if (::database.isInitialized) database.close()
+    }
+
+    @Test
+    fun normalToCompactRestorationKeepsTaskIdentityAndRelativeOffset() =
+        taskPositionAcrossHeightRestoration(startCompact = false)
+
+    @Test
+    fun compactToNormalRestorationKeepsTaskIdentityAndRelativeOffset() =
+        taskPositionAcrossHeightRestoration(startCompact = true)
+
+    @Test
+    fun disappearingCleanupWarningPreservesSavedTaskIdentityAndOffset() =
+        taskPositionAcrossWarningRestoration(startWarning = true)
+
+    @Test
+    fun appearingCleanupWarningPreservesSavedTaskIdentityAndOffset() =
+        taskPositionAcrossWarningRestoration(startWarning = false)
+
+    private fun seedHeightTasks() {
+        runBlocking {
+            repeat(45) { index ->
+                insert(manualItem.copy(
+                    id = "height-row-$index",
+                    displayTitle = "Height task $index",
+                    createdAtEpochMillis = 1000L + index,
+                ))
+            }
+        }
+    }
+
+    private fun taskPositionAcrossWarningRestoration(startWarning: Boolean) {
+        seedHeightTasks()
+        clock.advanceTo(BASE_EPOCH_MILLIS + 120_000)
+        failCleanup = startWarning
+        var showScreen by mutableStateOf(true)
+        var changeWarningOnDisposal = false
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            DisposableEffect(Unit) {
+                onDispose {
+                    if (changeWarningOnDisposal) {
+                        changeWarningOnDisposal = false
+                        showScreen = false
+                        failCleanup = !startWarning
+                        viewModel.retryCleanup()
+                    }
+                }
+            }
+            if (showScreen) {
+                Box(Modifier.fillMaxWidth().height(if (startWarning) 600.dp else 300.dp)) {
+                    AppViewport { MainAppContent { TodayScreen(viewModel) } }
+                }
+            }
+        }
+        awaitText("Height task 44")
+        awaitComposedCondition("initial cleanup did not settle") {
+            cleanupCalls > 0 && viewModel.cleanupWarning.value == startWarning &&
+                applicationScope.coroutineContext[Job]!!.children.none { it.isActive }
+        }
+        compose.onNodeWithTag("today-scroll").performScrollToNode(hasText("Height task 20"))
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) { it(0f, 37f) }
+        val saved = firstVisibleHeightTask()
+        changeWarningOnDisposal = true
+        restoration.emulateSavedInstanceStateRestore()
+        assertTrue("restored list must not mount with the previous warning", !showScreen)
+        awaitComposedCondition("cleanup result did not change while the list was disposed") {
+            viewModel.cleanupWarning.value == !startWarning
+        }
+        compose.runOnIdle { showScreen = true }
+        awaitComposedCondition("Today did not reload after warning change") {
+            viewModel.uiState.value is TodayUiState.Content
+        }
+        assertHeightTaskPosition(saved, "saved-state warning transition")
+        compose.onNodeWithContentDescription("Add task").assertIsEnabled()
+        assertTrue(
+            "changing cleanup status must not expose an expired notification",
+            (viewModel.uiState.value as TodayUiState.Content).tasks.none { it.id == expiringNotificationItem.id },
+        )
+        runBlocking { assertNotNull(database.triageDao().findTriageRecord(expiringNotificationItem.id)) }
+        // Inspect the nonblocking notice only after verifying restoration without a corrective scroll.
+        compose.onNodeWithTag("today-scroll").performScrollToIndex(0)
+        val warning = compose.activity.getString(R.string.today_cleanup_warning)
+        if (startWarning) compose.onNodeWithText(warning).assertDoesNotExist()
+        else {
+            compose.onNodeWithText(warning).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText(compose.activity.getString(R.string.today_cleanup_retry))
+                .performScrollTo().assertIsDisplayed().assertIsEnabled()
+        }
+    }
+
+    private fun taskPositionAcrossHeightRestoration(startCompact: Boolean) {
+        seedHeightTasks()
+        val initialHeight = if (startCompact) 300.dp else 600.dp
+        val restoredHeight = if (startCompact) 600.dp else 300.dp
+        var height by mutableStateOf(initialHeight)
+        var heightOnDisposal: Dp? = null
+        var compact by mutableStateOf<Boolean?>(null)
+        var restoredAfterDisposal = false
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            DisposableEffect(Unit) {
+                onDispose {
+                    // The tester has already serialized the old index/offset. Change height
+                    // only now, so a live key-based update cannot mask a broken saved index.
+                    heightOnDisposal?.let {
+                        height = it
+                        heightOnDisposal = null
+                        restoredAfterDisposal = true
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(height)) {
+                AppViewport {
+                    val currentCompact = LocalCompactHeight.current
+                    SideEffect { compact = currentCompact }
+                    MainAppContent { TodayScreen(viewModel) }
+                }
+            }
+        }
+        awaitText("Height task 44")
+        compose.runOnIdle { assertEquals(startCompact, compact) }
+        compose.onNodeWithTag("today-scroll").performScrollToNode(hasText("Height task 20"))
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) { it(0f, 37f) }
+        val saved = firstVisibleHeightTask()
+        heightOnDisposal = restoredHeight
+        restoration.emulateSavedInstanceStateRestore()
+        compose.runOnIdle {
+            assertTrue("height must change after state serialization/disposal", restoredAfterDisposal)
+            assertEquals(!startCompact, compact)
+        }
+        awaitComposedCondition("Today did not load after height restoration") {
+            viewModel.uiState.value is TodayUiState.Content
+        }
+        assertHeightTaskPosition(saved, "saved-state height transition")
+        compose.runOnIdle { height = initialHeight }
+        compose.waitUntil(5_000) { compact == startCompact }
+        assertHeightTaskPosition(saved, "live return to initial height")
+        compose.runOnIdle { height = restoredHeight }
+        compose.waitUntil(5_000) { compact == !startCompact }
+        assertHeightTaskPosition(saved, "live transition to restored height")
+    }
+
+    private fun firstVisibleHeightTask(): Pair<String, Float> {
+        val viewport = compose.onNodeWithTag("today-scroll").getUnclippedBoundsInRoot()
+        val topPx = with(compose.density) { viewport.top.toPx() }
+        val bottomPx = with(compose.density) { viewport.bottom.toPx() }
+        val first = compose.onAllNodes(hasText("Height task ", substring = true)).fetchSemanticsNodes()
+            .filter { it.layoutInfo.isPlaced && it.layoutInfo.isAttached && !it.layoutInfo.isDeactivated }
+            .filter { it.boundsInRoot.height > 0 && it.boundsInRoot.bottom > topPx && it.boundsInRoot.top < bottomPx }
+            .minBy { it.boundsInRoot.top }
+        val title = first.config[SemanticsProperties.Text].first { it.text.startsWith("Height task ") }.text
+        val task = (viewModel.uiState.value as TodayUiState.Content).tasks.single { it.title == title }
+        val offset = compose.onNodeWithText(title).getUnclippedBoundsInRoot().top - viewport.top
+        assertTrue("the saved task must have a real placed offset", offset.value.isFinite())
+        return task.id to offset.value
+    }
+
+    private fun assertHeightTaskPosition(expected: Pair<String, Float>, transition: String) {
+        val actual = firstVisibleHeightTask()
+        assertEquals("$transition changed the first visible task", expected.first, actual.first)
+        assertEquals("$transition changed the task's viewport-relative offset", expected.second, actual.second, 0.5f)
+    }
+
+    @Test
+    fun delayedReloadPreservesTheSavedTaskAndScrollOffset() {
+        runBlocking {
+            repeat(45) { index ->
+                insert(manualItem.copy(
+                    id = "scroll-row-$index",
+                    displayTitle = "Delayed list task $index",
+                    createdAtEpochMillis = 1000L + index,
+                ))
+            }
+        }
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            MainAppContent { tab ->
+                if (tab == MainTab.TODAY) TodayScreen(viewModel) else Text("Other tab")
+            }
+        }
+        awaitText("Delayed list task 44")
+        val target = "Delayed list task 20"
+        compose.onNodeWithTag("today-scroll").performScrollToNode(hasText(target))
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.ScrollBy) { it(0f, 37f) }
+        val before = compose.onNodeWithText(target).getUnclippedBoundsInRoot()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
+        awaitComposedCondition("Today did not release its observation") {
+            repository.activeSubscriptions == 0 && viewModel.uiState.value == TodayUiState.Loading
+        }
+        restoration.emulateSavedInstanceStateRestore()
+        repository.emissionGate = CompletableDeferred()
+        compose.onNode(hasText("Today") and hasClickAction()).performClick()
+        awaitComposedCondition("delayed reload did not start") { repository.activeSubscriptions == 1 }
+        compose.waitForIdle()
+        assertEquals(TodayUiState.Loading, viewModel.uiState.value)
+        compose.onNodeWithText(target).assertDoesNotExist()
+        repository.emissionGate!!.complete(Unit)
+        awaitComposedCondition("Today did not finish its delayed read") {
+            viewModel.uiState.value is TodayUiState.Content
+        }
+        compose.onNodeWithText(target).assertIsDisplayed()
+        assertEquals(
+            "loading layout overwrote the saved task offset",
+            before.top.value,
+            compose.onNodeWithText(target).getUnclippedBoundsInRoot().top.value,
+            0.5f,
+        )
     }
 
     @Test
@@ -338,6 +578,7 @@ class TodayLifecycleObservationTest {
         var peakSubscriptions = 0
             private set
         val queryTimes = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        var emissionGate: CompletableDeferred<Unit>? = null
 
         override fun observeVisibleTriageRecords(
             nowEpochMillis: Long,
@@ -349,6 +590,7 @@ class TodayLifecycleObservationTest {
                         activeSubscriptions += 1
                         peakSubscriptions = maxOf(peakSubscriptions, activeSubscriptions)
                     }
+                    emissionGate?.await()
                 }
                 .onCompletion {
                     synchronized(this@CountingTriageRepository) { activeSubscriptions -= 1 }

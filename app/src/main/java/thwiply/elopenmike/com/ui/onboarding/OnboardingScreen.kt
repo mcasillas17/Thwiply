@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,8 @@ import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 import thwiply.elopenmike.com.data.preferences.AppPreferences
 import thwiply.elopenmike.com.data.preferences.PreferenceState
 import thwiply.elopenmike.com.ui.preferences.PreferenceStatus
+import thwiply.elopenmike.com.ui.main.AppAlertDialog
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun OnboardingScreen(
@@ -103,16 +106,15 @@ fun OnboardingContent(
 
     val isDownloading = state is DownloadState.Downloading
     val controlsEnabled = !busy && !isDownloading
-    var confirmNanoDownload by remember { mutableStateOf(false) }
-    var confirmNanoUse by remember { mutableStateOf(false) }
-    var expandEducation by remember { mutableStateOf(false) }
+    var confirmNanoDownload by rememberSaveable { mutableStateOf(false) }
+    var confirmNanoUse by rememberSaveable { mutableStateOf(false) }
+    var expandEducation by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -141,6 +143,8 @@ fun OnboardingContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+                .testTag("setup-scroll")
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp)
@@ -243,7 +247,7 @@ fun OnboardingContent(
                 onClick = { if (state is DownloadState.Success) onExit() else onStartDownload() },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .heightIn(min = 56.dp)
                     .shadow(
                         elevation = if (isDownloading) 0.dp else 8.dp,
                         shape = RoundedCornerShape(16.dp),
@@ -295,7 +299,7 @@ fun OnboardingContent(
                 OutlinedButton(onClick = onExit) { Text(stringResource(R.string.setup_return)) }
             }
             if (confirmNanoUse) {
-                AlertDialog(
+                AppAlertDialog(
                     onDismissRequest = { confirmNanoUse = false },
                     title = { Text(stringResource(R.string.nano_use_title)) },
                     text = { Text(stringResource(R.string.nano_use_consent)) },
@@ -313,7 +317,7 @@ fun OnboardingContent(
                 )
             }
             if (confirmNanoDownload) {
-                AlertDialog(
+                AppAlertDialog(
                     onDismissRequest = { confirmNanoDownload = false },
                     title = { Text(stringResource(R.string.nano_consent_title)) },
                     text = { Text(stringResource(R.string.nano_consent_body)) },
@@ -396,26 +400,28 @@ private fun GlowingSpiderWebIcon(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ValuePropsRow() {
-    Row(
+    FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ValuePropBadge(
             icon = Icons.Default.Security,
             label = stringResource(R.string.setup_local_ai),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
         )
         ValuePropBadge(
             icon = Icons.Default.Bolt,
             label = stringResource(R.string.setup_explicit_choice),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
         )
         ValuePropBadge(
             icon = Icons.Default.TaskAlt,
             label = stringResource(R.string.setup_alpha_lab),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
         )
     }
 }
@@ -548,6 +554,7 @@ private fun DownloadStatusCard(state: DownloadState) {
                     ) {
                         Text(
                             text = stringResource(R.string.setup_downloading),
+                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary

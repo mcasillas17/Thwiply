@@ -6,14 +6,19 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import java.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,6 +45,16 @@ import thwiply.elopenmike.com.domain.triage.StorageFailureReason
 import thwiply.elopenmike.com.domain.triage.StorageOperation
 import thwiply.elopenmike.com.ui.today.TodayScreen
 import thwiply.elopenmike.com.ui.today.TodayViewModel
+import thwiply.elopenmike.com.ui.today.TodayUiState
+import thwiply.elopenmike.com.ui.theme.ThwiplyTheme
+import thwiply.elopenmike.com.data.preferences.ThemeMode
+import thwiply.elopenmike.com.ui.main.AppViewport
+import androidx.activity.enableEdgeToEdge
+import android.view.WindowManager
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Modifier
 
 /**
  * Real Compose Today over real Room with an injected retention-delete failure. Synthetic rows
@@ -77,10 +92,30 @@ class TodayCleanupFailureTest {
             NotificationDataCleanupCoordinator(lifecycle, Clock.systemUTC(), applicationScope),
             Clock.systemUTC(),
         )
-        compose.setContent { TodayScreen(viewModel) }
+        val args = InstrumentationRegistry.getArguments()
+        compose.runOnUiThread {
+            compose.activity.enableEdgeToEdge()
+            compose.activity.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            compose.activity.window.attributes = compose.activity.window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
+        compose.setContent {
+            ThwiplyTheme(if (args.getString("fnd04Theme") == "dark") ThemeMode.DARK else ThemeMode.LIGHT) {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    AppViewport { TodayScreen(viewModel) }
+                }
+            }
+        }
 
-        awaitText(manualItem.displayTitle)
+        awaitAndScrollToTask(viewModel, manualItem.displayTitle).assertIsDisplayed()
         // The expired notification row survives the failed delete but is never rendered.
+        assertEquals(
+            false,
+            (viewModel.uiState.value as? TodayUiState.Content)?.tasks?.any {
+                it.id == expiredNotificationItem.id
+            },
+        )
         assertEquals(
             0,
             compose.onAllNodesWithText(expiredNotificationItem.displayTitle)
@@ -93,7 +128,8 @@ class TodayCleanupFailureTest {
                 database.triageDao().findTriageRecord(expiredNotificationItem.id)?.item?.id,
             )
         }
-        awaitText(warning())
+        compose.waitUntil(10_000) { viewModel.cleanupWarning.value }
+        scrollToText(warning())
             .assertIsDisplayed()
             // The announcement lives on the node that carries the message text.
             .assert(
@@ -103,20 +139,23 @@ class TodayCleanupFailureTest {
                 ),
             )
 
+        android.util.Log.i("FND04Evidence", "READY scenario=today-cleanup-warning")
+        val holdSeconds = args.getString("fnd04HoldSeconds")?.toLongOrNull()?.coerceIn(0, 60) ?: 0
+        if (holdSeconds > 0) Thread.sleep(holdSeconds * 1000)
+
         // Manual work stays usable while the warning is showing.
         compose.onNodeWithContentDescription("Add task").performClick()
         compose.onNodeWithText("Task description").performTextInput("Synthetic cleanup task")
-        compose.onNodeWithText("Add Task").performClick()
-        awaitText("Synthetic cleanup task")
+        compose.onNodeWithText("Add Task").performScrollTo().assertIsDisplayed().performClick()
+        awaitAndScrollToTask(viewModel, "Synthetic cleanup task").assertIsDisplayed()
 
         lifecycle.failPurge = false
-        compose.onNodeWithText(compose.activity.getString(R.string.today_cleanup_retry))
+        scrollToText(compose.activity.getString(R.string.today_cleanup_retry))
             .performClick()
 
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithText(warning()).fetchSemanticsNodes().isEmpty()
-        }
-        compose.onNodeWithText(manualItem.displayTitle).assertIsDisplayed()
+        compose.waitUntil(10_000) { !viewModel.cleanupWarning.value }
+        assertEquals(0, compose.onAllNodesWithText(warning()).fetchSemanticsNodes().size)
+        scrollToText(manualItem.displayTitle).assertIsDisplayed()
         runBlocking {
             assertNull(database.triageDao().findTriageRecord(expiredNotificationItem.id))
         }
@@ -124,8 +163,15 @@ class TodayCleanupFailureTest {
 
     private fun warning() = compose.activity.getString(R.string.today_cleanup_warning)
 
-    private fun awaitText(value: String) = compose.run {
-        waitUntil(10_000) { onAllNodesWithText(value).fetchSemanticsNodes().isNotEmpty() }
+    private fun awaitAndScrollToTask(viewModel: TodayViewModel, title: String) = compose.run {
+        waitUntil(10_000) {
+            (viewModel.uiState.value as? TodayUiState.Content)?.tasks?.any { it.title == title } == true
+        }
+        scrollToText(title)
+    }
+
+    private fun scrollToText(value: String) = compose.run {
+        onNodeWithTag("today-scroll").performScrollToNode(hasText(value))
         onNodeWithText(value)
     }
 

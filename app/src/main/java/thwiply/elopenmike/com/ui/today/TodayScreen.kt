@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -57,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +89,10 @@ import thwiply.elopenmike.com.R
 import thwiply.elopenmike.com.domain.triage.SourceKind
 import thwiply.elopenmike.com.domain.triage.TriageItem
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
+import thwiply.elopenmike.com.ui.main.AppAlertDialog
+import thwiply.elopenmike.com.ui.main.AppTopBar
+import thwiply.elopenmike.com.ui.main.LocalCompactHeight
+import androidx.compose.ui.platform.testTag
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,7 +105,8 @@ fun TodayScreen(
     val taskInputFailure by viewModel.taskInputFailure.collectAsStateWithLifecycle()
     val cleanupWarning by viewModel.cleanupWarning.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddDialog by rememberSaveable { mutableStateOf(false) }
+    val compactHeight = LocalCompactHeight.current
 
     // Entry and every resume are cleanup and visibility boundaries: a device that slept
     // through an expiry must not come back showing an expired notification-derived record.
@@ -117,6 +128,9 @@ fun TodayScreen(
             TaskFilter.COMPLETED -> tasks.filter { it.isCompleted }
         }
     }
+    // Placeholder measurement must not clamp the saved task position during a delayed reload.
+    val taskListState = rememberLazyListState()
+    val statusListState = rememberLazyListState()
 
     LaunchedEffect(operationFailure) {
         if (operationFailure != null) {
@@ -143,7 +157,7 @@ fun TodayScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TodayTopBar(activeCount = tasks.count { !it.isCompleted })
+            if (!compactHeight) TodayTopBar(activeCount = tasks.count { !it.isCompleted })
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -168,32 +182,49 @@ fun TodayScreen(
             }
         },
     ) { innerPadding ->
-        Column(
+        LazyColumn(
+            state = if (uiState is TodayUiState.Content && filteredTasks.isNotEmpty())
+                taskListState else statusListState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+                .testTag("today-scroll"),
+            contentPadding = PaddingValues(bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (cleanupWarning) {
-                CleanupWarningBanner(onRetry = viewModel::retryCleanup)
-            }
-            if (uiState is TodayUiState.Content) {
-                FilterRow(selectedFilter = selectedFilter, onSelect = viewModel::setFilter)
+            // Content always has filters: one real chrome item keeps saved task indices
+            // stable across header/warning changes without empty sentinel spacing.
+            if (compactHeight || cleanupWarning || uiState is TodayUiState.Content) {
+                item("chrome") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (compactHeight) TodayTopBar(activeCount = tasks.count { !it.isCompleted })
+                        if (cleanupWarning) CleanupWarningBanner(onRetry = viewModel::retryCleanup)
+                        if (uiState is TodayUiState.Content) {
+                            FilterRow(selectedFilter = selectedFilter, onSelect = viewModel::setFilter)
+                        }
+                    }
+                }
             }
             when (uiState) {
-                TodayUiState.Loading -> CenteredStatus {
+                TodayUiState.Loading -> item { CenteredStatus {
                     CircularProgressIndicator()
-                }
-                TodayUiState.Empty -> EmptyTodayState()
-                TodayUiState.StorageError -> StorageErrorState()
+                } }
+                TodayUiState.Empty -> item { EmptyTodayState() }
+                TodayUiState.StorageError -> item { StorageErrorState() }
                 is TodayUiState.Content -> {
                     if (filteredTasks.isEmpty()) {
-                        FilterEmptyState()
+                        item { FilterEmptyState() }
                     } else {
-                        TaskList(
-                            tasks = filteredTasks,
-                            onToggle = viewModel::toggleTask,
-                            onDelete = viewModel::deleteTask,
-                        )
+                        items(filteredTasks, key = TaskItem::id) { task ->
+                            Box(Modifier.padding(horizontal = 16.dp)) {
+                                TaskCard(
+                                    task = task,
+                                    onToggle = { viewModel.toggleTask(task.id) },
+                                    onDelete = { viewModel.deleteTask(task.id) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -211,17 +242,15 @@ fun TodayScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TodayTopBar(activeCount: Int) {
     val date = remember {
         LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, MMMM d"))
     }
-    TopAppBar(
-        title = {
+    AppTopBar {
             Column {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
@@ -252,11 +281,7 @@ private fun TodayTopBar(activeCount: Int) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background,
-        ),
-    )
+    }
 }
 
 @Composable
@@ -286,27 +311,6 @@ private fun FilterRow(
     }
 }
 
-@Composable
-private fun TaskList(
-    tasks: List<TaskItem>,
-    onToggle: (String) -> Unit,
-    onDelete: (String) -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 88.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(tasks, key = TaskItem::id) { task ->
-            TaskCard(
-                task = task,
-                onToggle = { onToggle(task.id) },
-                onDelete = { onDelete(task.id) },
-            )
-        }
-    }
-}
-
 /** Nonblocking notice: cleanup failed, records stay usable, and a retry is one tap away. */
 @Composable
 private fun CleanupWarningBanner(onRetry: () -> Unit) {
@@ -317,10 +321,9 @@ private fun CleanupWarningBanner(onRetry: () -> Unit) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(start = 12.dp, top = 4.dp, end = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Icon(
                 imageVector = Icons.Default.ErrorOutline,
@@ -334,7 +337,6 @@ private fun CleanupWarningBanner(onRetry: () -> Unit) {
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 // The live region owns the message text, so it has content to announce.
                 modifier = Modifier
-                    .weight(1f)
                     .semantics { liveRegion = LiveRegionMode.Polite },
             )
             TextButton(onClick = onRetry) {
@@ -392,7 +394,8 @@ private fun StorageErrorState() {
 private fun CenteredStatus(content: @Composable ColumnScope.() -> Unit) {
     Box(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
+            .heightIn(min = 180.dp)
             .padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -410,7 +413,7 @@ private fun TaskCard(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    var expanded by remember(task.id) { mutableStateOf(false) }
+    var expanded by rememberSaveable(task.id) { mutableStateOf(false) }
     val containerColor by animateColorAsState(
         targetValue = if (task.isCompleted) {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
@@ -598,12 +601,16 @@ private fun QuickAddDialog(
     onDismiss: () -> Unit,
     onAdd: (String, String?, Boolean) -> Unit,
 ) {
-    var title by remember { mutableStateOf("") }
-    var subtitle by remember { mutableStateOf("") }
-    var isHighPriority by remember { mutableStateOf(false) }
+    var title by rememberSaveable { mutableStateOf("") }
+    var subtitle by rememberSaveable { mutableStateOf("") }
+    var isHighPriority by rememberSaveable { mutableStateOf(false) }
+    var titleTruncated by rememberSaveable { mutableStateOf(false) }
+    var notesTruncated by rememberSaveable { mutableStateOf(false) }
+    val titleDraftLimit = TriageItem.MAX_DISPLAY_TITLE_LENGTH + 1
+    val notesDraftLimit = TriageItem.MAX_DISPLAY_SUMMARY_LENGTH + 1
     val titleTooLong = title.trim().length > TriageItem.MAX_DISPLAY_TITLE_LENGTH
     val summaryTooLong = subtitle.trim().length > TriageItem.MAX_DISPLAY_SUMMARY_LENGTH
-    AlertDialog(
+    AppAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Thwip New Task", fontWeight = FontWeight.Bold) },
         text = {
@@ -613,11 +620,20 @@ private fun QuickAddDialog(
             ) {
                 OutlinedTextField(
                     value = title,
-                    onValueChange = { title = it },
+                    maxLines = 3,
+                    onValueChange = {
+                        titleTruncated = it.length > titleDraftLimit
+                        title = it.take(titleDraftLimit)
+                    },
                     label = { Text("Task description") },
-                    isError = titleTooLong,
-                    supportingText = if (titleTooLong) {
-                        { Text("Use ${TriageItem.MAX_DISPLAY_TITLE_LENGTH} characters or fewer.") }
+                    isError = titleTooLong || titleTruncated,
+                    supportingText = if (titleTruncated) {
+                        { Text(
+                            stringResource(R.string.task_draft_truncated, titleDraftLimit),
+                            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        ) }
+                    } else if (titleTooLong) {
+                        { Text(stringResource(R.string.task_draft_limit, TriageItem.MAX_DISPLAY_TITLE_LENGTH)) }
                     } else {
                         null
                     },
@@ -625,11 +641,20 @@ private fun QuickAddDialog(
                 )
                 OutlinedTextField(
                     value = subtitle,
-                    onValueChange = { subtitle = it },
+                    maxLines = 4,
+                    onValueChange = {
+                        notesTruncated = it.length > notesDraftLimit
+                        subtitle = it.take(notesDraftLimit)
+                    },
                     label = { Text("Notes (optional)") },
-                    isError = summaryTooLong,
-                    supportingText = if (summaryTooLong) {
-                        { Text("Use ${TriageItem.MAX_DISPLAY_SUMMARY_LENGTH} characters or fewer.") }
+                    isError = summaryTooLong || notesTruncated,
+                    supportingText = if (notesTruncated) {
+                        { Text(
+                            stringResource(R.string.task_draft_truncated, notesDraftLimit),
+                            Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        ) }
+                    } else if (summaryTooLong) {
+                        { Text(stringResource(R.string.task_draft_limit, TriageItem.MAX_DISPLAY_SUMMARY_LENGTH)) }
                     } else {
                         null
                     },
@@ -640,7 +665,7 @@ private fun QuickAddDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("High priority")
+                    Text("High priority", modifier = Modifier.weight(1f))
                     Switch(
                         checked = isHighPriority,
                         onCheckedChange = { isHighPriority = it },
@@ -651,7 +676,8 @@ private fun QuickAddDialog(
         confirmButton = {
             Button(
                 onClick = { onAdd(title, subtitle, isHighPriority) },
-                enabled = title.isNotBlank() && !titleTooLong && !summaryTooLong,
+                enabled = title.isNotBlank() && !titleTooLong && !summaryTooLong &&
+                    !titleTruncated && !notesTruncated,
             ) {
                 Text("Add Task")
             }

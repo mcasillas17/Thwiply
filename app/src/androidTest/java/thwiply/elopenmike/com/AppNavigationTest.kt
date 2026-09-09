@@ -1,13 +1,32 @@
 package thwiply.elopenmike.com
 
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.view.WindowManager
 import java.io.File
 import java.security.MessageDigest
 import java.time.Clock
@@ -58,6 +77,60 @@ class AppNavigationTest {
     private var metadataScheduler: TestCoroutineScheduler? = null
     private lateinit var coordinator: InferenceCoordinator
     private val providerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var constrained = false
+    private var theme = ThemeMode.SYSTEM
+
+    /** Optional bounded hold lets the parent capture actual fake-provider UI, never real inference. */
+    @Test fun deviceEvidenceScenario() {
+        val args = InstrumentationRegistry.getArguments()
+        val scenario = args.getString("fnd04Scenario") ?: "lab-ready"
+        theme = if (args.getString("fnd04Theme") == "dark") ThemeMode.DARK else ThemeMode.LIGHT
+        initFails = scenario == "lab-error"
+        if (scenario == "lab-initializing") initializationGate = CountDownLatch(1)
+        launch(if (scenario == "lab-missing") "missing" else "installed")
+        when {
+            scenario.startsWith("lab-") -> {
+                tab("Lab")
+                when (scenario) {
+                    "lab-error" -> awaitText(text(R.string.lab_initialization_failed)).performScrollTo()
+                    "lab-initializing" -> compose.onAllNodesWithText(text(R.string.lab_initializing))
+                        .onFirst().performScrollTo()
+                    "lab-missing" -> compose.onNodeWithText(text(R.string.lab_missing)).performScrollTo()
+                    else -> {
+                        readyButton().performScrollTo()
+                        if (scenario == "lab-ime") {
+                            compose.onNodeWithText(text(R.string.lab_input_label)).performScrollTo()
+                                .performClick().performTextReplacement("Synthetic keyboard prompt")
+                            compose.runOnIdle {
+                                WindowInsetsControllerCompat(compose.activity.window, compose.activity.window.decorView)
+                                    .show(WindowInsetsCompat.Type.ime())
+                            }
+                            compose.waitUntil(5_000) {
+                                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                                    ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                            }
+                            readyButton().performScrollTo()
+                            assertTabsAboveIme()
+                        }
+                    }
+                }
+            }
+            scenario == "settings" -> {
+                tab("Settings")
+                compose.onNodeWithText("Model setup").performScrollTo()
+            }
+            scenario == "today-ime" -> {
+                compose.onNodeWithContentDescription("Add task").performClick()
+                compose.onNodeWithText("Task description").performClick().performTextInput("Synthetic manual draft")
+                compose.onNodeWithText("Add Task").performScrollTo()
+            }
+            else -> addManualTask()
+        }
+        compose.waitForIdle()
+        android.util.Log.i("FND04Evidence", "READY scenario=$scenario")
+        val seconds = args.getString("fnd04HoldSeconds")?.toLongOrNull()?.coerceIn(0, 60) ?: 0
+        if (seconds > 0) Thread.sleep(seconds * 1000)
+    }
 
     @After fun tearDown() {
         initializationGate?.countDown()
@@ -71,6 +144,167 @@ class AppNavigationTest {
     }
 
     @Test fun missingModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("missing")
+    @Test fun fakeHostMatchesProductionWindowConfiguration() {
+        launch()
+        compose.runOnIdle {
+            assertEquals(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+                compose.activity.window.attributes.softInputMode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST)
+            assertEquals(WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS,
+                compose.activity.window.attributes.layoutInDisplayCutoutMode)
+        }
+    }
+    @Test fun labDraftAndScrollSurviveTabSetupAndRestoration() {
+        launch("installed")
+        tab("Lab")
+        readyButton()
+        val draft = "Synthetic draft retained while resizing"
+        compose.onNodeWithText(text(R.string.lab_input_label)).performScrollTo()
+            .performTextReplacement(draft)
+        // Text replacement focuses the field and opens the real IME. Compare saved
+        // scroll positions in the same settled viewport, not during its dismissal.
+        compose.runOnIdle {
+            WindowInsetsControllerCompat(compose.activity.window, compose.activity.window.decorView)
+                .hide(WindowInsetsCompat.Type.ime())
+        }
+        compose.waitUntil(5_000) {
+            ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom == 0
+        }
+        compose.onNodeWithText("Output Stream").performScrollTo()
+        compose.onNodeWithText("Output Stream").assertIsDisplayed()
+        val savedScroll = labScrollPosition()
+        assertTrue("fixture must be scrolled before restoration", savedScroll > 0)
+        tab("Settings")
+        tab("Lab")
+        // Re-entry starts an asynchronous readiness operation. Its temporary busy
+        // message is not part of the stable layout whose saved offset we compare.
+        readyButton()
+        assertEquals("tab return lost Lab scroll", savedScroll, labScrollPosition(), 1f)
+        compose.onNodeWithText("Output Stream").assertIsDisplayed()
+        compose.onNodeWithText(draft).assertExists()
+        restoration.emulateSavedInstanceStateRestore()
+        readyButton()
+        assertEquals("saved-state restoration lost Lab scroll", savedScroll, labScrollPosition(), 1f)
+        compose.onNodeWithText("Output Stream").assertIsDisplayed()
+        compose.onNodeWithText(draft).assertExists()
+        compose.onNodeWithText(text(R.string.provider_select)).performScrollTo()
+        val setupScroll = labScrollPosition()
+        compose.onNodeWithText(text(R.string.provider_select)).performClick()
+        back()
+        readyButton()
+        assertEquals("setup return lost Lab scroll", setupScroll, labScrollPosition(), 1f)
+        compose.onNodeWithText(draft).assertExists()
+    }
+
+    private fun labScrollPosition() = compose.onNodeWithTag("lab-scroll").fetchSemanticsNode()
+        .config[SemanticsProperties.VerticalScrollAxisRange].value()
+
+    @Test fun shortLargeTextLabKeepsRunActionFullyReachable() {
+        constrained = true
+        launch("installed")
+        tab("Lab")
+        readyButton().performScrollTo().assertIsDisplayed()
+        assertFullyVisible(compose.onNodeWithText(text(R.string.lab_run)))
+        compose.onNodeWithText(text(R.string.lab_json_mode)).performScrollTo()
+        assertFullyVisible(compose.onNodeWithText(text(R.string.lab_json_mode)))
+    }
+
+    @Test fun shortLargeTextSettingsKeepsThemeChoicesReadable() {
+        constrained = true
+        launch()
+        tab("Settings")
+        for (label in listOf(R.string.theme_system, R.string.theme_light, R.string.theme_dark)) {
+            val node = compose.onNodeWithText(text(label), useUnmergedTree = true).performScrollTo()
+            assertFullyVisible(node)
+            val layouts = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertTrue(layouts.isNotEmpty())
+            assertTrue("theme label clipped: ${text(label)}", layouts.all { layout ->
+                (0 until layout.lineCount).all {
+                    !layout.isLineEllipsized(it) &&
+                        layout.getLineRight(it) <= layout.size.width + 1 &&
+                        layout.getLineBottom(it) <= layout.size.height + 1
+                }
+            })
+        }
+    }
+
+    @Test fun taskDraftSurvivesSavedStateRestoration() {
+        launch()
+        compose.onNodeWithContentDescription("Add task").performClick()
+        compose.onNodeWithText("Task description").performTextInput("Synthetic unsaved title")
+        compose.onNodeWithText("Notes (optional)").performTextInput("Synthetic unsaved notes")
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Synthetic unsaved title").assertExists()
+        compose.onNodeWithText("Synthetic unsaved notes").assertExists()
+        compose.onNodeWithText("Add Task").performClick()
+        awaitText("Synthetic unsaved title").assertIsDisplayed()
+    }
+
+    @Test fun realImeWindowKeepsLabRunFullyReachableAndClosesWithoutGap() {
+        // Use the real window: a forced small Compose box still gets the full-size
+        // keyboard's insets, unlike an actual landscape or resized Android window.
+        launch("installed")
+        tab("Lab")
+        readyButton()
+        val fullHeight = compose.onNodeWithTag("adaptive-pane").fetchSemanticsNode().boundsInRoot.height
+        val input = compose.onNodeWithText(text(R.string.lab_input_label))
+        input.performScrollTo().performClick()
+        compose.runOnIdle {
+            WindowInsetsControllerCompat(compose.activity.window, compose.activity.window.decorView)
+                .show(WindowInsetsCompat.Type.ime())
+        }
+        compose.waitUntil(5_000) {
+            ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        }
+        input.performTextReplacement("Synthetic keyboard draft")
+        readyButton().performScrollTo()
+        assertFullyVisible(readyButton())
+        val keyboard = requireNotNull(ViewCompat.getRootWindowInsets(compose.activity.window.decorView))
+            .getInsets(WindowInsetsCompat.Type.ime()).bottom
+        val runBounds = readyButton().fetchSemanticsNode().boundsInWindow
+        assertTrue("run action is behind the actual IME",
+            runBounds.bottom <= compose.activity.window.decorView.height - keyboard + 1)
+        assertTabsAboveIme()
+        compose.runOnIdle {
+            WindowInsetsControllerCompat(compose.activity.window, compose.activity.window.decorView)
+                .hide(WindowInsetsCompat.Type.ime())
+        }
+        compose.waitUntil(5_000) {
+            ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == false
+        }
+        compose.onNodeWithText("Output Stream").performScrollTo()
+        assertFullyVisible(compose.onNodeWithText("Output Stream"))
+        compose.onNodeWithText("Synthetic keyboard draft").assertExists()
+        assertEquals("IME dismissal left a gap", fullHeight,
+            compose.onNodeWithTag("adaptive-pane").fetchSemanticsNode().boundsInRoot.height, 1f)
+    }
+
+    private fun assertFullyVisible(node: SemanticsNodeInteraction) {
+        val bounds = node.fetchSemanticsNode().boundsInRoot
+        val size = node.getUnclippedBoundsInRoot()
+        with(compose.density) {
+            assertEquals("clipped width", (size.right - size.left).toPx(), bounds.width, 1f)
+            assertEquals("clipped height", (size.bottom - size.top).toPx(), bounds.height, 1f)
+        }
+    }
+
+    private fun assertTabsAboveIme() {
+        val decor = compose.activity.window.decorView
+        val insets = requireNotNull(ViewCompat.getRootWindowInsets(decor))
+        val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        assertTrue("keyboard must really be open", keyboard > 0)
+        val safe = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+        for (label in listOf("Today", "Lab", "Settings")) {
+            val tab = compose.onNode(hasText(label) and hasClickAction())
+            assertFullyVisible(tab)
+            val bounds = tab.fetchSemanticsNode().boundsInWindow
+            assertTrue("$label behind actual IME: $bounds", bounds.bottom <= decor.height - keyboard + 1)
+            assertTrue("$label under cutout", bounds.left >= safe.left - 1 && bounds.right <= decor.width - safe.right + 1)
+        }
+    }
     @Test fun settingsDisplaysPackagedVersion() {
         val expectedVersion = BuildConfig.VERSION_NAME
         
@@ -108,7 +342,12 @@ class AppNavigationTest {
         launch(modelCondition)
         addManualTask()
         tab("Lab")
-        compose.onNodeWithText(text(R.string.lab_missing)).assertIsDisplayed()
+        compose.waitUntil(10_000) {
+            coordinator.readiness.value == ProviderReadiness.Missing && !coordinator.busy.value &&
+                ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
+                    ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom == 0
+        }
+        awaitText(text(R.string.lab_missing)).assertIsDisplayed()
         compose.onNodeWithText("Thwip Test").performScrollTo().assertIsNotEnabled()
         tab("Settings")
         openSetup()
@@ -154,6 +393,8 @@ class AppNavigationTest {
         tab("Today")
         addManualTask()
         initializationGate!!.countDown()
+        // A cancelled native initialization must unwind before another request can start.
+        compose.waitUntil(10_000) { !coordinator.busy.value }
         tab("Lab")
         readyButton().performScrollTo().assertIsEnabled()
     }
@@ -210,7 +451,20 @@ class AppNavigationTest {
     }
 
     private fun launch(modelCondition: String = "missing") {
+        if (InstrumentationRegistry.getArguments().getString("fnd04Orientation") == "landscape") {
+            compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            compose.waitUntil(10_000) {
+                compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            }
+        }
         val context = compose.activity
+        compose.runOnUiThread {
+            context.enableEdgeToEdge()
+            context.window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            context.window.attributes = context.window.attributes.apply {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            }
+        }
         modelDirectory = File(context.cacheDir, "fnd02-${System.nanoTime()}").also { it.mkdirs() }
         val preset = ModelPreset.QWEN_2_5_1_5B.copy(
             fileName = "fixture.litertlm", expectedBytes = 4,
@@ -293,7 +547,13 @@ class AppNavigationTest {
         viewModels += listOf(today, settings, deletion, playground, setup)
         restoration = StateRestorationTester(compose)
         restoration.setContent {
-            ThwiplyTheme {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, if (constrained) 1.5f else density.fontScale),
+            ) {
+            Box(if (constrained) Modifier.requiredSize(320.dp, 440.dp) else Modifier) {
+            ThwiplyTheme(theme) {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                 AppNavigation(
                     mainScreen = { open ->
                         MainAppContent { tab ->
@@ -308,6 +568,9 @@ class AppNavigationTest {
                         OnboardingScreen(onExit = { setup.pauseDownload(); exit() }, viewModel = setup)
                     },
                 )
+                }
+            }
+            }
             }
         }
     }

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -27,8 +28,11 @@ import thwiply.elopenmike.com.llm.provider.ProviderReadiness
 import thwiply.elopenmike.com.ui.main.ProviderForegroundEffect
 import thwiply.elopenmike.com.ui.main.label
 import thwiply.elopenmike.com.ui.main.message
+import thwiply.elopenmike.com.ui.main.AppTopBar
+import thwiply.elopenmike.com.ui.main.LocalCompactHeight
+import androidx.compose.ui.platform.testTag
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlaygroundScreen(
     onModelSetup: () -> Unit,
@@ -48,10 +52,11 @@ fun PlaygroundScreen(
     val output by viewModel.output.collectAsStateWithLifecycle()
     val metrics by viewModel.metrics.collectAsStateWithLifecycle()
 
-    var prompt by remember { mutableStateOf("Don't forget to review the pull request before our 3pm team meeting!") }
-    var isJsonMode by remember { mutableStateOf(true) }
+    var prompt by rememberSaveable { mutableStateOf("Don't forget to review the pull request before our 3pm team meeting!") }
+    var isJsonMode by rememberSaveable { mutableStateOf(true) }
 
     val clipboardManager = LocalClipboardManager.current
+    val compactHeight = LocalCompactHeight.current
 
     val presets = listOf(
         "💬 WhatsApp" to "Hey! Can you bring the HDMI cable and projector to the conference room by 2pm?",
@@ -62,41 +67,20 @@ fun PlaygroundScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "AI Playground",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                        Text(
-                            text = "Test on-device extraction & generation performance",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
+            if (!compactHeight) PlaygroundHeader()
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+                .testTag("lab-scroll")
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (compactHeight) PlaygroundHeader()
             LabReadinessCard(readiness, selection.provider, busy, onModelSetup, viewModel::prepareEngine)
             selection.provider?.let {
                 Text(stringResource(R.string.provider_selected, stringResource(it.label())))
@@ -156,6 +140,7 @@ fun PlaygroundScreen(
                         onValueChange = { prompt = it.take(PlaygroundViewModel.MAX_INPUT_CHARACTERS) },
                         label = { Text(stringResource(R.string.lab_input_label)) },
                         supportingText = { Text(stringResource(R.string.lab_input_limit)) },
+                        maxLines = 5,
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 90.dp),
@@ -164,10 +149,10 @@ fun PlaygroundScreen(
                     )
 
                     // Mode Toggle & Actions Row
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -228,33 +213,21 @@ fun PlaygroundScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     MetricItem(
                         label = stringResource(R.string.lab_speed),
                         value = if (metrics.charactersPerSec > 0)
                             stringResource(R.string.lab_characters_per_second, metrics.charactersPerSec) else "--"
                     )
-                    Divider(
-                        modifier = Modifier
-                            .height(28.dp)
-                            .width(1.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                    )
                     MetricItem(
                         label = stringResource(R.string.lab_characters),
                         value = metrics.characterCount.toString()
-                    )
-                    Divider(
-                        modifier = Modifier
-                            .height(28.dp)
-                            .width(1.dp),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                     )
                     MetricItem(
                         label = stringResource(R.string.lab_elapsed),
@@ -334,6 +307,22 @@ fun PlaygroundScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlaygroundHeader() {
+    AppTopBar {
+        Text(
+            "AI Playground",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Black,
+        )
+        Text(
+            "Test on-device extraction & generation performance",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

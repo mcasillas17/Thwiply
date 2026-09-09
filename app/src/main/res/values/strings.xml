@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">Thwiply</string>
+    <string name="dialog_pane">Dialog</string>
+    <string name="task_draft_limit">Character limit: %1$d.</string>
+    <string name="task_draft_truncated">This paste was too long; only its beginning was kept. Draft character limit: %1$d. Shorten or replace it before adding the task.</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>

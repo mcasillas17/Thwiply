@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +29,10 @@ import thwiply.elopenmike.com.llm.model.ModelLoadState
 import thwiply.elopenmike.com.ui.main.label
 import thwiply.elopenmike.com.ui.preferences.PreferenceStatus
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
+import thwiply.elopenmike.com.ui.main.AppAlertDialog
+import thwiply.elopenmike.com.ui.main.AppTopBar
+import thwiply.elopenmike.com.ui.main.LocalCompactHeight
+import androidx.compose.ui.platform.testTag
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,43 +47,28 @@ fun SettingsScreen(
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val modelLoadState by viewModel.modelLoadState.collectAsStateWithLifecycle()
     val notificationDataState by notificationDataViewModel.state.collectAsStateWithLifecycle()
-    var confirmDeleteNotificationData by remember { mutableStateOf(false) }
-    var confirmResetPreferences by remember { mutableStateOf(false) }
+    var confirmDeleteNotificationData by rememberSaveable { mutableStateOf(false) }
+    var confirmResetPreferences by rememberSaveable { mutableStateOf(false) }
 
     val uriHandler = LocalUriHandler.current
+    val compactHeight = LocalCompactHeight.current
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Settings",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = "App preferences, model manager & privacy",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
+            if (!compactHeight) SettingsHeader()
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .consumeWindowInsets(innerPadding)
+                .testTag("settings-scroll")
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+            if (compactHeight) SettingsHeader()
             // Section 1: Appearance & Theme
             SettingsSection(title = "Appearance") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -308,7 +298,7 @@ fun SettingsScreen(
     }
 
     if (confirmResetPreferences) {
-        AlertDialog(
+        AppAlertDialog(
             onDismissRequest = { confirmResetPreferences = false },
             title = { Text(stringResource(R.string.preferences_reset)) },
             text = { Text(stringResource(R.string.preferences_reset_description)) },
@@ -327,7 +317,7 @@ fun SettingsScreen(
     }
 
     if (confirmDeleteNotificationData) {
-        AlertDialog(
+        AppAlertDialog(
             onDismissRequest = { confirmDeleteNotificationData = false },
             title = { Text("Delete notification data?") },
             text = {
@@ -355,7 +345,7 @@ fun SettingsScreen(
     }
 
     when (val state = notificationDataState) {
-        is NotificationDataDeletionState.Deleted -> AlertDialog(
+        is NotificationDataDeletionState.Deleted -> AppAlertDialog(
             onDismissRequest = notificationDataViewModel::dismissResult,
             title = { Text("Local data deleted") },
             text = {
@@ -369,7 +359,7 @@ fun SettingsScreen(
             },
         )
 
-        NotificationDataDeletionState.Error -> AlertDialog(
+        NotificationDataDeletionState.Error -> AppAlertDialog(
             onDismissRequest = notificationDataViewModel::dismissResult,
             title = { Text("Data wasn't deleted") },
             text = { Text("Thwiply couldn't update local storage. No success was recorded.") },
@@ -381,6 +371,22 @@ fun SettingsScreen(
         NotificationDataDeletionState.Idle,
         NotificationDataDeletionState.Deleting,
         -> Unit
+    }
+}
+
+@Composable
+private fun SettingsHeader() {
+    AppTopBar {
+        Text(
+            "Settings",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Black,
+        )
+        Text(
+            "App preferences, model manager & privacy",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

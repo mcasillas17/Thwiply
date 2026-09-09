@@ -1,6 +1,6 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, FND-03, FND-07, FND-08, FND-12, and FND-14 complete; the remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, FND-03, FND-04, FND-07, FND-08, FND-12, and FND-14 complete; the remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
 **Last updated:** 2026-09-09
 
 ## Product direction
@@ -43,7 +43,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Notification-data lifecycle | FND-12 complete | One coordinator purges expired notification-derived records at startup, Today entry, and a uniquely scheduled daily job; expired rows stay hidden even when a delete fails, and a cleanup failure leaves manual tasks visible and usable behind a nonblocking warning |
 | Alpha distribution | Workflow delivered; runtime proof open | Signed, minified, per-ABI prereleases, checksums, and a 32 MiB arm64 size gate exist; the minified LiteRT-LM path lacks a recorded device smoke gate |
 | Instrumentation CI | FND-01 complete | A required, separate API 36 managed-emulator job executes Room reopen, migration, and backup tests; assertion-failure propagation and restored success are recorded below |
-| Android quality | FND-03 complete; other hardening open | Screens collect with lifecycle awareness and Today's Room observation and expiry timer stop with it; target SDK 36 insets, string resources, accessibility semantics/touch targets, and adaptive-layout evidence remain open |
+| Android quality | FND-03 and FND-04 complete; other hardening open | Lifecycle-owned collection, edge-to-edge/system/IME insets and adaptive single-pane layouts have API 31/36 evidence; repository-wide strings and the broader accessibility baseline remain open |
 | Project metadata | FND-14 complete | Root `LICENSE` is present and the README link resolves, Settings reports `BuildConfig.VERSION_NAME`, and toolchain/dependency baselines are documented |
 
 ## Optional foreground Gemini Nano
@@ -152,8 +152,8 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. `FND-01`, `FND-02`, `FND-03`, `FND-07`, `FND-08`, `FND-12`, and `FND-14` are
-   complete. Start `FND-04` and `FND-05` in parallel where ownership permits.
+1. `FND-01`, `FND-02`, `FND-03`, `FND-04`, `FND-07`, `FND-08`, `FND-12`, and
+   `FND-14` are complete. Start `FND-05` where ownership permits.
 2. Complete `FND-06` after its resource prerequisite and complete the remaining
    model and Lab chain `FND-09` through `FND-11`.
 3. Prove the shipped minified path with `FND-13`.
@@ -172,7 +172,7 @@ These decisions are prerequisites, not open implementation options:
 | FND-01 | Complete | Run existing Room reopen, migration, backup, and future service instrumentation in CI using a managed emulator job separate from the fast JVM/lint/build job. Preserve logs and make the device job required before merge. | None | API 36 Google APIs x86_64 GMD: `ThwiplyDatabaseTest` 8, `ThwiplyMigrationTest` 1, `BackupConfigurationTest` 1, and app-context 1 passed; [restored passing CI](https://github.com/mcasillas17/Thwiply/actions/runs/33952691422). A [deliberate instrumentation assertion](https://github.com/mcasillas17/Thwiply/actions/runs/33952276955/job/101269178705) failed the job and blocked merge; the temporary test was removed in ordinary commit `90090aa`. [Active ruleset](https://github.com/mcasillas17/Thwiply/rules/22323517) requires `Android instrumentation` with no bypass. |
 | FND-02 | Complete | Replace model-gated root navigation with an app shell that always exposes manual Today and Settings. Model setup becomes a resumable feature state, not an entrance requirement. | None | Missing, partial-download, truncated, removed, installed, and failed-engine fixtures preserve manual work and Settings; setup exit, retry, completion, and restoration are covered. See the FND-02 evidence below for actual emulator results and simulation boundaries. |
 | FND-03 | Complete | Add lifecycle-aware Compose flow collection and subscription policies. Replace screen-level `collectAsState()` usage, stop off-screen Room observation, and test foreground/background transitions. | None | Screens collect with `collectAsStateWithLifecycle`; Today's Room observation and expiry timer are one shared `stateIn` subscription that stops with its collectors. Emulator lifecycle tests count open observations across stop/resume, navigation away/back, overlapping collectors, and expiry while hidden. See the FND-03 evidence below. |
-| FND-04 | Ready | Implement target SDK 36 edge-to-edge, status/navigation/IME insets, light/dark system-bar appearance, and adaptive phone/tablet/foldable layouts without changing product information architecture. | None | API 31 and 36 device tests cover gesture and three-button navigation, cutouts, IME use, rotation, and representative window sizes without clipped controls. |
+| FND-04 | Complete | Implement target SDK 36 edge-to-edge, status/navigation/IME insets, light/dark system-bar appearance, and adaptive phone/tablet/foldable layouts without changing product information architecture. | None | 165 JVM tests and full 73-test suites on both API 31 and 36 passed, with gesture/three-button, cutout, IME, large-text, recreation and representative window coverage. Actual emulator split-screen/posture changes preserve forms and avoid platform-reported hinges. See the [executed matrix and screenshots](WINDOW_LAYOUTS.md#executed-device-matrix), including synthetic-geometry and environment boundaries. |
 | FND-05 | Ready | Move user-facing copy, formatted counts, dates, accessibility labels, and errors into Android string/plural resources. Keep locale expansion separate until pilot scope chooses supported locales. | None | Android lint reports no production hardcoded-text violations; formatted/plural strings render correctly in unit or Compose tests. |
 | FND-06 | Blocked | Establish the accessibility baseline for existing surfaces: at least 48 dp interactive targets, meaningful state/action semantics, scalable text, contrast review, traversal order, and TalkBack paths for Today, Lab, onboarding, and Settings. Downstream features own their additional accessibility evidence. | FND-05 | Compose semantics tests and a documented TalkBack pass cover existing add, complete, delete, Lab generation/copy, model setup, and Settings flows. |
 | FND-07 | Complete | Add a typed preference repository for theme and durable education state; remove unused notification/screenshot capture flags and orphaned debug UI or isolate it to debug builds. Preferences never contain notification content. | None | 145 JVM and 44 API 36 ARM64 device tests passed; real process restarts restored Dark/Light and education v1 without changing provider bytes or granting consent. Failed reads, writes, resets, cancellation, races, and interrupted candidates are covered; obsolete capture/debug APIs are removed. See [FND-07 evidence](#fnd-07-evidence). |
@@ -331,19 +331,20 @@ FND-08 evidence was recorded on 2026-09-09:
   choices, preferences, or resumable partial download data. One mapping from artifact
   state to failure kind drives setup, Lab and Settings, so no surface describes absent
   weights as damaged bytes or a readable record as unreadable.
-- 202 JVM tests and 54 API 36 Google APIs arm64 managed-device tests passed with no
-  failures or skips, alongside `verifyBuildscriptBouncyCastle test lint assembleDebug`
-  and the minified arm64 `:app:assembleAlpha` at 27,212,249 bytes against the
-  33,554,432-byte gate. Coverage includes equal-length tampering, truncation, oversize,
+- The delivered branch, which merges the FND-04 work already on `main`, runs 210 JVM tests
+  and 76 API 36 Google APIs arm64 managed-device tests with no failures or skips, alongside
+  `verifyBuildscriptBouncyCastle test lint assembleDebug` and the minified arm64
+  `:app:assembleAlpha` at 27,243,057 bytes against the 33,554,432-byte gate. Those totals
+  include FND-04's own tests; the FND-08 cases are the ones listed below. Coverage includes equal-length tampering, truncation, oversize,
   a missing file behind an existing record, absent/malformed/unknown/unreadable records
   and their explicit recovery, cancellation of a caller and of the owning scope, a
   discard serialized behind a running hash, activation racing a refresh, a rejected
   replacement preserving a valid installation, and a known-answer digest vector.
 - Targeted mutation runs against this snapshot's own suite confirm it is load-bearing:
   deleting the digest comparison and disabling the two setup recovery paths fails 18 of
-  the 202 tests, and removing the verification mutex fails the discard-serialization test
-  on every repeat. An earlier mutation run against this task's first snapshot failed 11
-  tests; the suite has been rewritten since, so only the figure above describes it.
+  the 210 tests, and removing the verification mutex fails the discard-serialization test
+  on every repeat. Earlier mutation runs against superseded snapshots of this task failed
+  11 and then 18 of a smaller suite; only the figure above describes the delivered branch.
 
 Limits of this evidence: the automated fixtures are tiny stand-ins with real computed
 digests, not the 1.49 GiB artifact, so they establish the state contract and not
@@ -501,6 +502,29 @@ reusable entry point for it, and no listener, queue, or simulated ingestion
 trigger was added. `PILOT-05` remains **Blocked** on its other prerequisites, and
 no other foundation task is claimed by this work. See
 [retention and cleanup guidance](../README.md#notification-data-retention-and-cleanup).
+
+#### FND-04 evidence
+
+Recorded on 2026-09-09: a single safe viewport owns and consumes insets, current
+window constraints bound reading/form width, short-height chrome remains
+scrollable, and platform-reported separating/occluding features select one safe
+pane without changing destinations. Saveable input and task positions survive
+recreation, delayed loading and changes to leading header/warning content.
+Oversized drafts are bounded with explicit feedback rather than overflowing the
+Activity saved-state transaction.
+
+The [layout guide](WINDOW_LAYOUTS.md) records the actual API 31/36 ARM64 emulator
+matrix, real keyboard/window assertions, controlled failure states and authentic
+captures. Full suites executed 73 tests per API; additional large-text/cutout/IME
+stress runs passed. JVM, lint, debug and unsigned minified-alpha checks passed;
+the arm64 alpha is 27,218,581 bytes under the 32 MiB budget.
+
+No physical device, real model download/inference, signing change or release is
+claimed. The foldable image required explicitly documented platform geometry
+injection, and an unhealthy API 31 tall-cutout overlay was replaced by a tested
+dual-cutout profile. FND-05, FND-06, model hardening and real-model release gates
+retain their separate states. Provider routing, top-foreground enforcement,
+ViewModel ownership and retention policy are unchanged.
 
 ### Phase 2 - consent and bounded notification ingestion
 

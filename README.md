@@ -49,6 +49,7 @@ the additional audience and data-disclosure gates.
 - **Centralized Retention Cleanup:** One coordinator purges expired notification-derived records at app startup, on Today entry, and once a day in the background; expired records stop being shown even when a delete fails, and manual tasks stay usable.
 - **Real Empty and Failure States:** Today reflects repository-backed `Flow` state instead of hardcoded sample tasks and distinguishes an empty database from a storage failure.
 - **Persistent App Preferences:** **System Default**, **Dark Mode** (Deep Electric Sapphire & Obsidian Slate), and **Light Mode** (Crisp Porcelain & Electric Cyan) survive app restarts. Optional model-setup education is versioned and remembered separately from provider selection or consent.
+- **Adaptive Window Layouts:** Edge-to-edge backgrounds, theme-aware system bars, keyboard-safe forms, bounded reading widths and fold-aware single-pane layouts preserve Today, Lab, Settings and optional setup.
 - **Official Adaptive Branding:** Custom spider-web spinneret icon design with Android 13+ monochrome dynamic theming support.
 
 ---
@@ -478,6 +479,24 @@ Reproduce the automated coverage locally:
   -Pandroid.testInstrumentationRunnerArguments.class=thwiply.elopenmike.com.ui.today.TodayLifecycleObservationTest,thwiply.elopenmike.com.TodayLifecycleAppTest
 ```
 
+### Window layouts and presentation state
+
+One safe viewport owns system-bar, cutout and keyboard insets; nested scaffolds
+consume their chrome padding rather than adding the system insets again. Content
+adapts to the current window, with bounded reading widths and a single
+unobstructed pane around reported hinges. Short windows keep headings and long
+warnings scrollable without adding destinations.
+
+Saveable tabs, bounded drafts and scroll positions are presentation state, not
+cached Room records or retained model work. Today's loading/status list cannot
+overwrite its saved task position, and changes to header/warning chrome keep task
+indices stable. Oversized task pastes show explicit feedback and cannot silently
+become valid submissions.
+
+See [inset ownership, the executed API 31/36 matrix, reproducible commands and
+authentic screenshots](docs/WINDOW_LAYOUTS.md). This layout coverage does not
+complete the broader accessibility/localization backlog or real-model device gates.
+
 ### Android instrumentation
 
 The full `:app` instrumentation suite runs on the Gradle Managed Device
@@ -549,16 +568,14 @@ cached test outcomes. Gradle manages device creation, clean baseline snapshots,
 headless startup, and shutdown; animations are disabled and only one managed
 device runs at a time. Do not add class selectors to CI: the full suite must run.
 The checker fails on missing reports/classes, inconsistent counts, duplicates,
-errors, assertion failures, or skipped tests. The current suite executes 44
-tests: `ThwiplyDatabaseTest` 12, `ThwiplyMigrationTest` 1,
-`BackupConfigurationTest` 1, `ExampleInstrumentedTest` 1,
-`AppNavigationTest` 12, `ModelOptionalLaunchTest` 2,
-`NotificationMaintenanceSchedulerTest` 2, `TodayCleanupFailureTest` 1,
-`ProviderControlsTest` 6, `ProviderSetupTest` 1, `PreferenceActivityTest` 3,
-and `PreferenceStatusTest` 2. The
-FND-01 foundation baseline remains 11 tests; FND-02 adds 11 navigation tests and
-FND-12 adds 7 retention-cleanup tests. The optional-provider work adds 9 cases,
-and FND-07 adds 6 preference/consent cases.
+errors, assertion failures, or skipped tests. The suite discovers all tests under
+`app/src/androidTest`, including Room/migration/backup, navigation and model-optional
+launch, provider controls, preferences, retention and lifecycle ownership, and
+`AdaptiveWindowTest`/`AdaptiveContentTest` layout coverage. The
+[recorded FND-04 matrix](docs/WINDOW_LAYOUTS.md#executed-device-matrix) ran 73 tests
+per API; use the generated reports for the current executed count rather than a
+duplicated per-class inventory. The original FND-01 foundation baseline was
+11 tests; later foundation work expanded the auto-discovered suite.
 Provider controls use deterministic callbacks; the real-activity test covers
 selection persistence and navigation, not successful AICore inference or a real
 model download. JVM tests additionally use fake engines/SDK clients, actual

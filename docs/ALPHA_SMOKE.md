@@ -257,7 +257,8 @@ Run each scenario on both target classes and record `PASS`, `FAIL`, or
 | Approved download and verification | On the fresh installation, select the pinned Qwen model and `Download or resume model`. Wait beyond 100% for `Model installed. Open Lab to initialize local inference.` Record duration and any error. Only then return explicitly. |
 | Real initialization | Open Lab. Record initialization start/end or failure, then require `Model ready. Tap Thwip Test to run inference on this device.` This must be the real minified APK and LiteRT-LM, not an instrumentation fake. |
 | Completed generation | Uncheck `Extract JSON Task`; enter `Reply with one short sentence about a blue kite.` Tap `Thwip Test`. Save the synthetic prompt and final nonempty response. Require `Generating...` to finish, the button to become available again, and no generation error/crash. Record wall-clock duration, not claimed tokens/second. |
-| Post-inference shell | Return to Today and Settings; confirm both remain usable. Cold-launch and repeat initialization/generation if testing restart separately; this does not prove restart digest revalidation. |
+| Post-inference shell | Return to Today and Settings; confirm both remain usable. |
+| Restart revalidation | Cold-launch and immediately open Lab or `Model setup`. Verification starts at launch, so for the 1.49 GiB artifact it may already have resolved before the screen appears; record that as a pass and note it. What must be observed is the outcome, not the transient copy: the Qwen state resolves on its own to `Ready` (or to a damaged/unreadable verdict) with no action, and Today and Settings stay usable throughout. Record the wall-clock time from launch to a resolved verdict. A resolved `Ready` is real restart digest evidence for this device, build and artifact only. |
 
 ### Gemini Nano scenarios
 
@@ -304,10 +305,13 @@ runtime dependency: com.google.ai.edge.litertlm:litertlm-android:0.12.0
 
 Fresh-download success passes through ModelManager's exact-size and SHA-256
 activation checks. It is not an independent privileged readback of private model
-storage. At this baseline restart adoption checks only length (FND-08); a
-preexisting installed model or the UI's 100% progress alone is not fresh digest
-verification evidence. Do not enable debugging/root access or replace weights
-with a tiny fixture to work around the non-debuggable candidate.
+storage. Since FND-08, restart adoption revalidates the whole artifact — streamed
+size and SHA-256, off the main thread — so a preexisting installed model that
+resolves to `Ready` after a cold launch is fresh digest evidence, while the UI's
+100% progress alone still is not. Equal-length tampering and truncation are
+rejected as damaged rather than adopted. Do not enable debugging/root access or
+replace weights with a tiny fixture to work around the non-debuggable candidate;
+the automated corruption fixtures are tiny stand-ins and are not real-model evidence.
 
 ## 5. Evidence and failure handoff
 

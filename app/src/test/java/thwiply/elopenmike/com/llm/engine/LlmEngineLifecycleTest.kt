@@ -12,6 +12,10 @@ import org.junit.rules.TemporaryFolder
 class LlmEngineLifecycleTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
 
+    /** These lifecycle cases own one artifact each; its path stands in for a content key. */
+    private suspend fun LlmEngineManager.initialize(model: java.io.File) =
+        initialize(model, model.absolutePath)
+
     @Test fun `native initialize and close run on supplied worker dispatcher`() = runBlocking {
         Executors.newSingleThreadExecutor { Thread(it, "qwen-worker") }.asCoroutineDispatcher().use { dispatcher ->
             val threads = mutableListOf<String>()

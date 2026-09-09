@@ -17,6 +17,8 @@ import thwiply.elopenmike.com.llm.provider.InferenceCoordinator
 import thwiply.elopenmike.com.llm.provider.InferenceFailure
 import thwiply.elopenmike.com.llm.provider.FailureKind
 import thwiply.elopenmike.com.llm.provider.ProviderReadiness
+import thwiply.elopenmike.com.llm.provider.RetryAction
+import thwiply.elopenmike.com.llm.provider.retryAction
 
 data class PlaygroundMetrics(
     val characterCount: Int = 0,
@@ -63,13 +65,33 @@ class PlaygroundViewModel @Inject constructor(
         }
     }
 
-    fun prepareEngine() {
+    /** Entering Lab or regaining foreground. It must never revalidate rejected weights. */
+    fun prepareEngine() = preparation { coordinator.prepare() }
+
+    /**
+     * The explicit Lab retry control. Rejected weights are revalidated here rather than
+     * re-reported, so the button is not a no-op once the artifact has been replaced.
+     * It never starts a network download.
+     */
+    fun retry() {
+        val current = readiness.value
+        if (current is ProviderReadiness.Failed &&
+            current.failure.kind.retryAction == RetryAction.REVALIDATE
+        ) {
+            preparation {
+                coordinator.verifyQwen()
+                coordinator.prepare()
+            }
+        } else prepareEngine()
+    }
+
+    private fun preparation(action: suspend () -> Unit) {
         if (preparationJob?.isActive == true || selection.value.provider == null) return
         preparationJob = viewModelScope.launch {
             _generationFailure.value = null
             try {
                 busy.first { !it }
-                coordinator.prepare()
+                action()
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (failure: InferenceFailure) {

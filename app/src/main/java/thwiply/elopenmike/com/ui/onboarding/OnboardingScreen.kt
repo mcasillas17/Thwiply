@@ -36,12 +36,17 @@ import androidx.compose.ui.semantics.Role
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.llm.model.DownloadState
-import thwiply.elopenmike.com.llm.model.ModelLoadState
+import thwiply.elopenmike.com.llm.model.ModelArtifactState
+import thwiply.elopenmike.com.llm.model.isRejectedInstallation
 import thwiply.elopenmike.com.llm.provider.ModelProvider
+import thwiply.elopenmike.com.llm.provider.RetryAction
+import thwiply.elopenmike.com.llm.provider.rejectionKind
+import thwiply.elopenmike.com.llm.provider.retryAction
 import thwiply.elopenmike.com.llm.provider.NanoState
 import thwiply.elopenmike.com.llm.provider.ProviderSelection
 import thwiply.elopenmike.com.ui.main.ProviderForegroundEffect
 import thwiply.elopenmike.com.ui.main.label
+import thwiply.elopenmike.com.ui.main.discardLabel
 import thwiply.elopenmike.com.ui.main.message
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
 import thwiply.elopenmike.com.data.preferences.AppPreferences
@@ -59,7 +64,7 @@ fun OnboardingScreen(
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val selecting by viewModel.selecting.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
-    val qwenLoadState by viewModel.qwenLoadState.collectAsStateWithLifecycle()
+    val qwenArtifact by viewModel.qwenArtifact.collectAsStateWithLifecycle()
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     ProviderForegroundEffect(
         viewModel.foreground, selection.provider to selecting,
@@ -74,7 +79,9 @@ fun OnboardingScreen(
         viewModel::checkNano, viewModel::downloadNano,
         viewModel::pauseDownload, onExit,
         failure?.kind?.message(),
-        qwenLoadState,
+        qwenArtifact,
+        viewModel::verifyModel,
+        viewModel::discardRejectedModel,
         preferences,
         viewModel::acknowledgeModelSetupEducation,
         viewModel::reloadPreferences,
@@ -94,7 +101,9 @@ fun OnboardingContent(
     onStop: () -> Unit,
     onExit: () -> Unit,
     failureMessage: Int?,
-    qwenLoadState: ModelLoadState = ModelLoadState.Loaded,
+    qwenArtifact: ModelArtifactState = ModelArtifactState.Missing,
+    onVerifyModel: () -> Unit = {},
+    onDiscardRejectedModel: () -> Unit = {},
     preferences: PreferenceState = PreferenceState(AppPreferences()),
     onAcknowledgeEducation: () -> Unit = {},
     onRetryPreferences: () -> Unit = {},
@@ -202,12 +211,28 @@ fun OnboardingContent(
             }
             failureMessage?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
             if (selection.provider == ModelProvider.QWEN) {
-                when (qwenLoadState) {
-                    ModelLoadState.Loading -> Text(stringResource(R.string.qwen_metadata_checking))
-                    is ModelLoadState.Failed -> Text(
-                        stringResource(R.string.qwen_metadata_failed), color = MaterialTheme.colorScheme.error,
+                // Every artifact state is visible here; none of them blocks Today or Settings.
+                when (qwenArtifact) {
+                    ModelArtifactState.Missing -> Unit
+                    ModelArtifactState.Verifying, ModelArtifactState.Removing,
+                    is ModelArtifactState.Ready -> Text(stringResource(qwenArtifact.message()))
+                    is ModelArtifactState.Corrupt, is ModelArtifactState.Failed -> Text(
+                        stringResource(qwenArtifact.message()), color = MaterialTheme.colorScheme.error,
                     )
-                    ModelLoadState.Loaded -> Unit
+                }
+                // The same mapping Lab uses, so one place decides what a recheck can clear.
+                // Explicit recovery only: no control here starts a download.
+                if (qwenArtifact.rejectionKind()?.retryAction == RetryAction.REVALIDATE) {
+                    OutlinedButton(onClick = onVerifyModel, enabled = controlsEnabled) {
+                        Text(stringResource(R.string.qwen_verify_again))
+                    }
+                }
+                if (qwenArtifact.isRejectedInstallation()) {
+                    val label = (qwenArtifact as? ModelArtifactState.Corrupt)?.defect?.discardLabel()
+                        ?: R.string.qwen_discard_record
+                    OutlinedButton(onClick = onDiscardRejectedModel, enabled = controlsEnabled) {
+                        Text(stringResource(label))
+                    }
                 }
             }
 
@@ -250,7 +275,7 @@ fun OnboardingContent(
                         ambientColor = ElectricCyanAccent,
                         spotColor = ElectricCyanAccent
                     ),
-                enabled = controlsEnabled && qwenLoadState != ModelLoadState.Loading,
+                enabled = controlsEnabled && qwenArtifact != ModelArtifactState.Verifying,
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,

@@ -1,6 +1,7 @@
 package thwiply.elopenmike.com.llm.provider
 
 import java.io.File
+import java.security.MessageDigest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
@@ -417,7 +418,8 @@ class InferenceCoordinatorTest {
     @Test fun `failed Qwen metadata does not block explicitly selected Nano`() = runTest {
         val f = fixture(modelMetadata = "x".repeat(257))
         runCurrent()
-        assertEquals(FailureKind.MODEL_STORAGE,
+        // A record over the storage bound is unusable, not a storage read failure.
+        assertEquals(FailureKind.MODEL_RECORD,
             (f.coordinator.readiness.value as ProviderReadiness.Failed).failure.kind)
         f.coordinator.selectProvider(ModelProvider.GEMINI_NANO)
         f.coordinator.prepare()
@@ -425,6 +427,163 @@ class InferenceCoordinatorTest {
         assertEquals(listOf("nano"), f.coordinator.generate("hello").toList())
         assertEquals(0, f.engine.initializations)
         assertEquals(0, f.nano.downloads)
+    }
+
+    @Test fun `a corrupt artifact is reported and never reaches native initialization`() = runTest {
+        val f = fixture(corrupt = true)
+        runCurrent()
+        assertEquals(
+            ArtifactDefect.DIGEST_MISMATCH,
+            (f.coordinator.qwenArtifact.value as ModelArtifactState.Corrupt).defect,
+        )
+        assertEquals(
+            FailureKind.MODEL_CORRUPT,
+            (f.coordinator.readiness.value as ProviderReadiness.Failed).failure.kind,
+        )
+        assertFailure(FailureKind.MODEL_CORRUPT) { f.coordinator.prepare() }
+        assertFailure(FailureKind.UNAVAILABLE) { f.coordinator.generate("hello").collect() }
+        assertEquals(0, f.engine.initializations)
+    }
+
+    @Test fun `explicit reverification recovers a repaired artifact without any download`() = runTest {
+        val f = fixture(corrupt = true)
+        runCurrent()
+        f.repairArtifact()
+
+        f.coordinator.verifyQwen()
+
+        assertEquals(ModelArtifactState.Ready(f.preset), f.coordinator.qwenArtifact.value)
+        assertEquals(ProviderReadiness.NeedsInitialization, f.coordinator.readiness.value)
+        f.coordinator.prepare()
+        assertEquals(ProviderReadiness.Ready, f.coordinator.readiness.value)
+    }
+
+    @Test fun `verified readiness is withdrawn when the active artifact stops verifying`() = runTest {
+        val f = fixture()
+        f.coordinator.prepare()
+        assertEquals(ProviderReadiness.Ready, f.coordinator.readiness.value)
+
+        f.tamperWithArtifact()
+        f.coordinator.verifyQwen()
+
+        assertEquals(
+            FailureKind.MODEL_CORRUPT,
+            (f.coordinator.readiness.value as ProviderReadiness.Failed).failure.kind,
+        )
+        assertFailure(FailureKind.UNAVAILABLE) { f.coordinator.generate("hello").collect() }
+    }
+
+    @Test fun `discarding corrupt weights closes the engine and keeps the provider choice`() = runTest {
+        val f = fixture()
+        f.coordinator.prepare()
+        f.tamperWithArtifact()
+        f.coordinator.verifyQwen()
+        val observed = mutableListOf<ModelArtifactState>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            f.coordinator.qwenArtifact.collect { observed += it }
+        }
+
+        f.coordinator.discardRejectedQwen()
+
+        assertEquals(ModelArtifactState.Missing, f.coordinator.qwenArtifact.value)
+        assertEquals(ProviderReadiness.Missing, f.coordinator.readiness.value)
+        assertTrue(observed.contains(ModelArtifactState.Removing))
+        assertTrue(f.engine.closed)
+        assertFalse(f.artifact.exists())
+        assertEquals(ModelProvider.QWEN, f.coordinator.selection.value.provider)
+    }
+
+    @Test fun `an unusable activation record is cleared explicitly and is not a read failure`() =
+        runTest {
+            val f = fixture(modelMetadata = "x".repeat(257))
+            runCurrent()
+            assertEquals(
+                FailureKind.MODEL_RECORD,
+                (f.coordinator.readiness.value as ProviderReadiness.Failed).failure.kind,
+            )
+
+            f.coordinator.discardRejectedQwen()
+
+            assertEquals(ModelArtifactState.Missing, f.coordinator.qwenArtifact.value)
+            assertEquals(ProviderReadiness.Missing, f.coordinator.readiness.value)
+            // The record named no approved model, so its file is not ours to delete.
+            assertTrue(f.artifact.exists())
+            assertEquals(0, f.engine.initializations)
+        }
+
+    @Test fun `a canceled discard still settles and never strands Removing readiness`() = runTest {
+        val f = fixture(corrupt = true)
+        runCurrent()
+        lateinit var discard: Job
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            // Cancel only once the discard has actually begun and published Removing.
+            f.coordinator.qwenArtifact.collect {
+                if (it is ModelArtifactState.Removing) discard.cancel()
+            }
+        }
+        discard = launch { f.coordinator.discardRejectedQwen() }
+        discard.join()
+        runCurrent()
+
+        // The delete sequence is NonCancellable, so disk and state must still agree.
+        assertNotEquals(ProviderReadiness.Removing, f.coordinator.readiness.value)
+        assertEquals(ModelArtifactState.Missing, f.coordinator.qwenArtifact.value)
+        assertFalse(f.artifact.exists())
+    }
+
+    @Test fun `automatic preparation never revalidates a rejected artifact`() = runTest {
+        val f = fixture(corrupt = true)
+        runCurrent()
+        f.repairArtifact()
+
+        assertFailure(FailureKind.MODEL_CORRUPT) { f.coordinator.prepare() }
+
+        // Only the explicit control may re-hash; entry must not.
+        assertTrue(f.coordinator.qwenArtifact.value is ModelArtifactState.Corrupt)
+        f.coordinator.verifyQwen()
+        assertEquals(ModelArtifactState.Ready(f.preset), f.coordinator.qwenArtifact.value)
+    }
+
+    @Test fun `discarding is refused for a verified installed artifact`() = runTest {
+        val f = fixture()
+        runCurrent()
+
+        f.coordinator.discardRejectedQwen()
+
+        assertEquals(ModelArtifactState.Ready(f.preset), f.coordinator.qwenArtifact.value)
+        assertTrue(f.artifact.exists())
+    }
+
+    @Test fun `Nano stays independently usable while the Qwen artifact is corrupt`() = runTest {
+        val f = fixture(corrupt = true)
+        runCurrent()
+
+        f.coordinator.selectProvider(ModelProvider.GEMINI_NANO)
+        f.coordinator.prepare()
+
+        assertEquals(ProviderReadiness.Ready, f.coordinator.readiness.value)
+        assertEquals(listOf("nano"), f.coordinator.generate("hello").toList())
+        assertEquals(0, f.engine.initializations)
+        assertEquals(0, f.nano.downloads)
+    }
+
+    @Test fun `verification and native initialization never dispatch to the main thread`() = runTest {
+        Dispatchers.setMain(RejectingDispatcher)
+        try {
+            val f = fixture()
+            f.coordinator.verifyQwen()
+            f.coordinator.prepare()
+
+            assertEquals(ProviderReadiness.Ready, f.coordinator.readiness.value)
+            assertEquals(listOf("qwen"), f.coordinator.generate("hello").toList())
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private object RejectingDispatcher : CoroutineDispatcher() {
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable): Unit =
+            throw AssertionError("Model verification and engine work must stay off the main thread")
     }
 
     private suspend fun assertFailure(kind: FailureKind, block: suspend () -> Unit): InferenceFailure {
@@ -441,16 +600,23 @@ class InferenceCoordinatorTest {
         selectionText: String? = null,
         observerScope: CoroutineScope = backgroundScope,
         modelMetadata: String? = null,
+        corrupt: Boolean = false,
     ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val providerFile = File(temporaryFolder.newFolder(), "provider")
         selectionText?.let(providerFile::writeText)
         val repository = ProviderSelectionRepository(providerFile, backgroundScope, dispatcher)
         val modelsDir = temporaryFolder.newFolder()
-        val preset = ModelPreset.QWEN_2_5_1_5B.copy(fileName = "tiny.litertlm", expectedBytes = 4)
+        // The fixture artifact carries its own digest: a tiny file still has to verify.
+        val preset = ModelPreset.QWEN_2_5_1_5B.copy(
+            fileName = "tiny.litertlm",
+            expectedBytes = VERIFIED_FIXTURE.size.toLong(),
+            sha256 = MessageDigest.getInstance("SHA-256").digest(VERIFIED_FIXTURE).toHexString(),
+        )
         if (installed) {
             File(modelsDir, "active-model").writeText(preset.id)
-            File(modelsDir, preset.fileName).writeText("test")
+            File(modelsDir, preset.fileName)
+                .writeBytes(if (corrupt) TAMPERED_FIXTURE else VERIFIED_FIXTURE)
         }
         modelMetadata?.let { File(modelsDir, "active-model").writeText(it) }
         val models = ModelManager(modelsDir, OkHttpClient(), listOf(preset), backgroundScope, dispatcher)
@@ -459,7 +625,7 @@ class InferenceCoordinatorTest {
         val nano = FakeNano()
         val coordinator = InferenceCoordinator(repository, models, manager, NanoClientFactory(nano::open), observerScope, dispatcher)
         coordinator.setForeground(foreground)
-        return Fixture(repository, coordinator, nano, engine)
+        return Fixture(repository, coordinator, nano, engine, File(modelsDir, preset.fileName), preset)
     }
 
     private data class Fixture(
@@ -467,7 +633,12 @@ class InferenceCoordinatorTest {
         val coordinator: InferenceCoordinator,
         val nano: FakeNano,
         val engine: FakeQwen,
-    )
+        val artifact: File,
+        val preset: ModelPreset,
+    ) {
+        fun tamperWithArtifact() = artifact.writeBytes(TAMPERED_FIXTURE)
+        fun repairArtifact() = artifact.writeBytes(VERIFIED_FIXTURE)
+    }
 
     private class FakeQwen : ManagedEngine {
         var initializations = 0
@@ -512,5 +683,10 @@ class InferenceCoordinatorTest {
                 override fun close() { closes++; closeFailure?.let { throw it } }
             }
         }
+    }
+
+    private companion object {
+        val VERIFIED_FIXTURE = "verified fixture weights".toByteArray()
+        val TAMPERED_FIXTURE = "TAMPERED fixture weights".toByteArray()
     }
 }

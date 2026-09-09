@@ -24,7 +24,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.BuildConfig
 import thwiply.elopenmike.com.R
 import thwiply.elopenmike.com.data.preferences.ThemeMode
-import thwiply.elopenmike.com.llm.model.ModelLoadState
+import thwiply.elopenmike.com.llm.model.ModelArtifactState
+import thwiply.elopenmike.com.ui.main.storageLabel
 import thwiply.elopenmike.com.ui.main.label
 import thwiply.elopenmike.com.ui.preferences.PreferenceStatus
 import thwiply.elopenmike.com.ui.theme.ElectricCyanAccent
@@ -38,9 +39,8 @@ fun SettingsScreen(
 ) {
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     val themeMode = preferences.values?.theme
-    val activeModel by viewModel.activeModel.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
-    val modelLoadState by viewModel.modelLoadState.collectAsStateWithLifecycle()
+    val qwenArtifact by viewModel.qwenArtifact.collectAsStateWithLifecycle()
     val notificationDataState by notificationDataViewModel.state.collectAsStateWithLifecycle()
     var confirmDeleteNotificationData by remember { mutableStateOf(false) }
     var confirmResetPreferences by remember { mutableStateOf(false) }
@@ -164,11 +164,11 @@ fun SettingsScreen(
                     }
                     Text(
                         stringResource(R.string.settings_qwen_storage,
-                            when (modelLoadState) {
-                                ModelLoadState.Loading -> stringResource(R.string.qwen_metadata_checking)
-                                is ModelLoadState.Failed -> stringResource(R.string.qwen_metadata_failed)
-                                ModelLoadState.Loaded -> activeModel?.let { stringResource(R.string.settings_model_installed, it.size) }
-                                    ?: stringResource(R.string.settings_no_qwen)
+                            // One defect-aware mapping, so no state can fall back to "installed".
+                            when (val artifact = qwenArtifact) {
+                                is ModelArtifactState.Ready ->
+                                    stringResource(artifact.storageLabel(), artifact.preset.size)
+                                else -> stringResource(artifact.storageLabel())
                             }),
                         style = MaterialTheme.typography.bodySmall,
                     )

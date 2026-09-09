@@ -24,9 +24,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import thwiply.elopenmike.com.llm.provider.ModelProvider
 import thwiply.elopenmike.com.llm.provider.ProviderReadiness
+import thwiply.elopenmike.com.llm.provider.RetryAction
+import thwiply.elopenmike.com.llm.provider.retryAction
 import thwiply.elopenmike.com.ui.main.ProviderForegroundEffect
 import thwiply.elopenmike.com.ui.main.label
 import thwiply.elopenmike.com.ui.main.message
+import thwiply.elopenmike.com.ui.main.retryLabel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,7 +100,7 @@ fun PlaygroundScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            LabReadinessCard(readiness, selection.provider, busy, onModelSetup, viewModel::prepareEngine)
+            LabReadinessCard(readiness, selection.provider, busy, onModelSetup, viewModel::retry)
             selection.provider?.let {
                 Text(stringResource(R.string.provider_selected, stringResource(it.label())))
             }
@@ -376,8 +379,13 @@ fun LabReadinessCard(
             if (provider == ModelProvider.GEMINI_NANO) {
                 Button(onClick = onRetry, enabled = !busy) { Text(stringResource(R.string.nano_check)) }
             } else {
-                if (readiness == ProviderReadiness.NeedsInitialization || readiness is ProviderReadiness.Failed) {
-                    Button(onClick = onRetry, enabled = !busy) { Text(stringResource(R.string.lab_retry)) }
+                // The same mapping the action uses, so no failure gets a control that cannot help.
+                val retryable = readiness is ProviderReadiness.Failed &&
+                    readiness.failure.kind.retryAction != RetryAction.NONE
+                if (readiness == ProviderReadiness.NeedsInitialization || retryable) {
+                    val label = (readiness as? ProviderReadiness.Failed)?.failure?.kind?.retryLabel()
+                        ?: R.string.lab_retry
+                    Button(onClick = onRetry, enabled = !busy) { Text(stringResource(label)) }
                 }
             }
             OutlinedButton(onClick = onModelSetup) { Text(stringResource(R.string.setup_open)) }

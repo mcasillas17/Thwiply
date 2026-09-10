@@ -1,6 +1,6 @@
 # Thwiply Product Roadmap
 
-**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, FND-03, FND-04, FND-07, FND-12, and FND-14 complete; FND-08 and other ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
+**Status:** Phase 0 and Phase 1 delivered scope complete; FND-01, FND-02, FND-03, FND-04, FND-07, FND-08, FND-12, and FND-14 complete; the remaining ready foundation tasks and Phase 2 design may proceed; notification ingestion is not started
 **Last updated:** 2026-09-09
 
 ## Product direction
@@ -31,7 +31,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 
 | Area | State | Evidence and open work |
 |---|---|---|
-| Secure model installation | Core delivered; hardening open | Pinned HTTPS artifact, exact size, SHA-256 activation, and atomic install exist; restart adoption checks length but not the digest |
+| Secure model installation | FND-08 complete; download hardening open | Pinned HTTPS artifact, exact size, SHA-256 activation, and atomic install exist, and restart adoption revalidates streamed size plus SHA-256 off the main thread; resumable download policy, storage preflight and removal UX remain FND-10 |
 | Model-optional app shell | FND-02 complete | Today, Settings, and deletion controls are available without weights; optional setup returns to the previous tab, and Lab gates inference on the existing model/engine readiness contract |
 | Local LLM Lab | Foreground provider integration available; device evidence open | Qwen/LiteRT-LM and optional Nano/ML Kit share serialized operation ownership, cancellation/Stop and bounded streaming; metrics count Unicode code points, not chunks as tokens. Product-triage arbitration and real-model device proof remain open |
 | Optional Gemini Nano | Implementation present; physical acceptance blocked | Persisted explicit selection, SDK availability, separate preparation consent and foreground-only Lab exist; no automatic Qwen fallback/download and no Nano background-triage capability |
@@ -44,7 +44,7 @@ The long-term north star is **fewer interruptions without regret**. The first MV
 | Alpha distribution | Workflow delivered; runtime proof open | Signed, minified, per-ABI prereleases, checksums, and a 32 MiB arm64 size gate exist; the minified LiteRT-LM path lacks a recorded device smoke gate |
 | Instrumentation CI | FND-01 complete | A required, separate API 36 managed-emulator job executes Room reopen, migration, and backup tests; assertion-failure propagation and restored success are recorded below |
 | Android quality | FND-03 and FND-04 complete; other hardening open | Lifecycle-owned collection, edge-to-edge/system/IME insets and adaptive single-pane layouts have API 31/36 evidence; repository-wide strings and the broader accessibility baseline remain open |
-| Project metadata | Hardening open | Settings hardcodes its version, and README declares MIT while the linked `LICENSE` file is absent |
+| Project metadata | FND-14 complete | Root `LICENSE` is present and the README link resolves, Settings reports `BuildConfig.VERSION_NAME`, and toolchain/dependency baselines are documented |
 
 ## Optional foreground Gemini Nano
 
@@ -90,9 +90,9 @@ The Nano integration implements the foreground-Lab portions of ownership,
 cancellation, bounds and metrics. It did **not** complete the wider foundation
 tasks or any product phase. FND-07 subsequently delivered theme/education
 persistence separately, and FND-03 lifecycle-aware collection, both with evidence
-below. Qwen metadata is loaded asynchronously with
-explicit read failures, but restart weight adoption still checks length rather
-than revalidating the digest (FND-08). Broader download hardening,
+below. FND-08 subsequently replaced length-only restart adoption with full
+streamed size and SHA-256 revalidation and one explicit artifact-state contract,
+with evidence below. Broader download hardening,
 product-triage arbitration and physical/minified evidence
 remain in their existing tasks. FND-01, FND-02, FND-03, FND-07 and FND-12 retain
 their completed status and evidence.
@@ -152,10 +152,10 @@ These decisions are prerequisites, not open implementation options:
 
 ## Current execution order
 
-1. `FND-01`, `FND-02`, `FND-03`, `FND-04`, `FND-07`, `FND-12`, and `FND-14`
-   are complete. Start `FND-05` and `FND-08` in parallel where ownership permits.
-2. Complete `FND-06` after its resource prerequisite and complete the model and
-   Lab chain `FND-08` through `FND-11`.
+1. `FND-01`, `FND-02`, `FND-03`, `FND-04`, `FND-07`, `FND-08`, `FND-12`, and
+   `FND-14` are complete. Start `FND-05` where ownership permits.
+2. Complete `FND-06` after its resource prerequisite and complete the remaining
+   model and Lab chain `FND-09` through `FND-11`.
 3. Prove the shipped minified path with `FND-13`.
 4. `P2-00` may design contracts in parallel, but no listener code starts until
    its foundation prerequisites and accepted design are complete.
@@ -176,9 +176,9 @@ These decisions are prerequisites, not open implementation options:
 | FND-05 | Ready | Move user-facing copy, formatted counts, dates, accessibility labels, and errors into Android string/plural resources. Keep locale expansion separate until pilot scope chooses supported locales. | None | Android lint reports no production hardcoded-text violations; formatted/plural strings render correctly in unit or Compose tests. |
 | FND-06 | Blocked | Establish the accessibility baseline for existing surfaces: at least 48 dp interactive targets, meaningful state/action semantics, scalable text, contrast review, traversal order, and TalkBack paths for Today, Lab, onboarding, and Settings. Downstream features own their additional accessibility evidence. | FND-05 | Compose semantics tests and a documented TalkBack pass cover existing add, complete, delete, Lab generation/copy, model setup, and Settings flows. |
 | FND-07 | Complete | Add a typed preference repository for theme and durable education state; remove unused notification/screenshot capture flags and orphaned debug UI or isolate it to debug builds. Preferences never contain notification content. | None | 145 JVM and 44 API 36 ARM64 device tests passed; real process restarts restored Dark/Light and education v1 without changing provider bytes or granting consent. Failed reads, writes, resets, cancellation, races, and interrupted candidates are covered; obsolete capture/debug APIs are removed. See [FND-07 evidence](#fnd-07-evidence). |
-| FND-08 | Ready | Introduce explicit model states (`Missing`, `Verifying`, `Ready`, `Corrupt`, `Removing`, `Failed`), revalidate the active digest after restart off the main thread, and make every state visible without blocking manual features. | FND-02, FND-07 | Equal-length tampering and truncation are rejected after restart; original causes remain attached to failures; no JNI or full-file digest runs on the main thread. |
-| FND-09 | Blocked | Define single-engine ownership, off-main initialization, cancellation, stop, close, and arbitration between user-initiated Lab work and product triage. Never swallow coroutine cancellation or leak a conversation/native engine. | FND-08 | Fake-engine tests prove cancel/stop closes conversations, the mutex is released, user-visible states remain distinguishable, and one engine is active per process. |
-| FND-10 | Blocked | Make model download single-flight and resumable with validated range continuity, bounded/throttled progress, explicit cancellation, disk-space preflight, metered-network confirmation, timeouts, and user-initiated removal. | FND-07, FND-08 | Slow, partial, ignored-range, corrupt, low-space, metered, concurrent, cancel, restart, and remove cases pass without activating unverified bytes or reporting failure as success. |
+| FND-08 | Complete | Introduce explicit model states (`Missing`, `Verifying`, `Ready`, `Corrupt`, `Removing`, `Failed`), revalidate the active digest after restart off the main thread, and make every state visible without blocking manual features. | FND-02, FND-07 | Equal-length tampering and truncation are rejected after restart; original causes remain attached to failures; no JNI or full-file digest runs on the main thread. |
+| FND-09 | Ready | Define single-engine ownership, off-main initialization, cancellation, stop, close, and arbitration between user-initiated Lab work and product triage. Never swallow coroutine cancellation or leak a conversation/native engine. | FND-08 | Fake-engine tests prove cancel/stop closes conversations, the mutex is released, user-visible states remain distinguishable, and one engine is active per process. |
+| FND-10 | Ready | Make model download single-flight and resumable with validated range continuity, bounded/throttled progress, explicit cancellation, disk-space preflight, metered-network confirmation, timeouts, and user-initiated removal. | FND-07, FND-08 | Slow, partial, ignored-range, corrupt, low-space, metered, concurrent, cancel, restart, and remove cases pass without activating unverified bytes or reporting failure as success. |
 | FND-11 | Blocked | Correct Lab metrics and behavior: count characters or verified runtime tokens, bound prompt/output presentation, expose busy/stop states, reuse the engine arbitration contract, and keep Lab output separate from product persistence. | FND-09 | Metric tests use known streams and elapsed time; UI never labels chunks as tokens; Lab cancellation and contention states are visible and recoverable. |
 | FND-12 | Complete | Centralize notification-data cleanup at app startup, Today entry, and active ingestion boundaries; make purge failure diagnostic but never hide manual rows; add at most one best-effort local cleanup run per day with no network or model work. | None | One coordinator serves startup, Today entry, and a single daily `JobScheduler` job, one delete transaction per run; expired rows are also excluded from reads, so an injected purge failure keeps manual tasks visible and usable behind a nonblocking warning. See the FND-12 evidence below. |
 | FND-13 | Blocked | Audit packaged consumer rules, add only demonstrated R8/serialization/JNI rules, and run the minified alpha on an emulator and representative arm64 device through launch, model verification, initialization, and one generation. | FND-01, FND-08, FND-09, FND-10, FND-11 | The exact signed/minified variant launches and infers on device; mapping/keep evidence is archived; the arm64 size gate and per-ABI checks remain green. |
@@ -223,12 +223,12 @@ FND-02 evidence was recorded on 2026-09-05:
   warnings; the alpha APK was 26,159,006 bytes, below the 32 MiB gate.
 
 These navigation tests use tiny model fixtures and simulated native readiness;
-they do not prove full-model inference or equal-length corruption detection.
-The existing restart length check rejects the truncated fixture; digest
-revalidation remains `FND-08`, broader engine lifecycle remains `FND-09`, and
-download architecture remains `FND-10`. No physical-device or minified native
-inference smoke is claimed. `FND-08` and `P2-02` remain **Blocked**
-on their other listed prerequisites. See [setup guidance and navigation
+they do not prove full-model inference. As recorded on 2026-09-06 the restart
+length check rejected only the truncated fixture; equal-length corruption
+detection and digest revalidation were delivered later by `FND-08`, whose
+evidence is recorded separately below. Broader engine lifecycle remains `FND-09`
+and download architecture remains `FND-10`. No physical-device or minified native
+inference smoke is claimed by this FND-02 work. See [setup guidance and navigation
 diagram](../README.md#first-launch).
 
 FND-13 smoke preparation was recorded on 2026-09-06 (UTC), against re-fetched
@@ -252,8 +252,9 @@ FND-13 smoke preparation was recorded on 2026-09-06 (UTC), against re-fetched
   not reserved or published. [Baseline main CI](https://github.com/mcasillas17/Thwiply/actions/runs/34012247962)
   passed both jobs; that is not minified native inference evidence.
 
-`FND-13` remains **Blocked** on FND-08 through FND-11 and missing signed-candidate/
-physical-device proof. `FND-14` is **Complete**: the root
+As of that date `FND-13` remained **Blocked** on FND-08 through FND-11 and missing
+signed-candidate/physical-device proof; FND-08 has since completed, and the current
+FND-13 prerequisites are recorded in the FND-08 evidence below. `FND-14` is **Complete**: the root
 LICENSE is present with attribution, Settings uses the packaged version, and
 toolchains/dependencies are documented. Owner provisioning/approval and suitable hardware are
 required before final smoke; all applicable release gates remain independent.
@@ -304,9 +305,63 @@ Recorded on 2026-09-06:
   wider lifecycle behavior changed. Preferences use a separate no-backup file,
   not the notification-data deletion boundary.
 
-`FND-08` is now **Ready**, not implemented. `FND-04` through `FND-06`, `FND-09`
-through `FND-11`, `FND-13`, `FND-14`, and all other unrelated milestones retain
-their prior states and evidence.
+As of that date `FND-08` was **Ready**, not implemented; it has since completed, with
+its own evidence below. `FND-04` through `FND-06`, `FND-09` through `FND-11`, `FND-13`,
+`FND-14`, and all other unrelated milestones retained their prior states and evidence
+at the time of this FND-07 work.
+
+FND-08 evidence was recorded on 2026-09-09:
+
+- One typed artifact contract, `ModelArtifactState`, replaces the former
+  `ModelLoadState` plus nullable `activeModel` pair, so readiness is never inferred
+  from metadata and two flows can no longer transiently disagree. Its states are
+  `Verifying`, `Missing`, `Ready`, `Corrupt` (with a `FILE_MISSING` / `SIZE_MISMATCH`
+  / `DIGEST_MISMATCH` defect), `Removing`, and `Failed` (retaining its original cause,
+  and distinguishing an unusable activation record from a storage read failure).
+- Adoption after restart streams the whole approved artifact through SHA-256 in one
+  bounded 1 MiB buffer on the injected IO dispatcher, checking the streamed byte count
+  as well as the digest. The model is never read into a byte array. Verification is
+  owned by the application scope and serialized with activation and discard by one
+  mutex, so a canceled caller can neither strand `Verifying` nor publish `Ready`.
+- Engine identity is the verified content (`presetId:sha256`), not the pathname, so a
+  same-path replacement cannot reuse an engine loaded from the previous bytes, and no
+  unverified artifact reaches native initialization.
+- Recovery is explicit and never starts a download: re-check, and a discard that removes
+  only Thwiply's damaged artifact and its activation record — not manual tasks, provider
+  choices, preferences, or resumable partial download data. One mapping from artifact
+  state to failure kind drives setup, Lab and Settings, so no surface describes absent
+  weights as damaged bytes or a readable record as unreadable.
+- The delivered branch, which merges the FND-04 work already on `main`, runs 210 JVM tests
+  and 76 API 36 Google APIs arm64 managed-device tests with no failures or skips, alongside
+  `verifyBuildscriptBouncyCastle test lint assembleDebug` and the minified arm64
+  `:app:assembleAlpha` at 27,243,057 bytes against the 33,554,432-byte gate. Those totals
+  include FND-04's own tests; the FND-08 cases are the ones listed below. Coverage includes equal-length tampering, truncation, oversize,
+  a missing file behind an existing record, absent/malformed/unknown/unreadable records
+  and their explicit recovery, cancellation of a caller and of the owning scope, a
+  discard serialized behind a running hash, activation racing a refresh, a rejected
+  replacement preserving a valid installation, and a known-answer digest vector.
+- Targeted mutation runs against this snapshot's own suite confirm it is load-bearing:
+  deleting the digest comparison and disabling the two setup recovery paths fails 18 of
+  the 210 tests, and removing the verification mutex fails the discard-serialization test
+  on every repeat. Earlier mutation runs against superseded snapshots of this task failed
+  11 and then 18 of a smaller suite; only the figure above describes the delivered branch.
+
+Limits of this evidence: the automated fixtures are tiny stand-ins with real computed
+digests, not the 1.49 GiB artifact, so they establish the state contract and not
+real-model inference. No real Qwen download, real-model restart revalidation timing,
+supported-Nano device, signed candidate, or minified runtime smoke was performed; those
+remain **not obtained** and are owned by `FND-13` and the release gates. Mid-hash
+interruption is exercised through cancellation of a caller and of the owning scope and
+by `ensureActive()` between buffered reads; forcing an interrupt inside a specific read
+would require a production seam that exists only for testing, which was deliberately
+not added.
+
+Readiness after FND-08: `FND-09` and `FND-10` become **Ready**, since `FND-08` was their
+only open prerequisite. `FND-11` remains **Blocked** on `FND-09`, and `FND-13` remains
+**Blocked** on `FND-09` through `FND-11` plus its own signed-candidate and
+physical-device evidence. `NANO-01` is unchanged: Nano availability is independent of
+Qwen artifact verification, and no provider fallback was introduced. Full download and
+removal UX, metered-network policy and storage preflight remain `FND-10`.
 
 FND-03 evidence was recorded on 2026-09-06:
 

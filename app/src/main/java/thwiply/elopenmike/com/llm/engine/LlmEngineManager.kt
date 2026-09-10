@@ -25,8 +25,8 @@ import javax.inject.Singleton
 
 sealed interface EngineState {
     data object Idle : EngineState
-    data class Initializing(val modelPath: String) : EngineState
-    data class Ready(val modelPath: String) : EngineState
+    data class Initializing(val modelKey: String) : EngineState
+    data class Ready(val modelKey: String) : EngineState
     data class Failed(val message: String, val cause: Throwable? = null) : EngineState
 }
 
@@ -53,17 +53,20 @@ class LlmEngineManager internal constructor(
 
     private val mutex = Mutex()
     private var engine: ManagedEngine? = null
-    private var activeModelPath: String? = null
+    private var activeModelKey: String? = null
     private val _state = MutableStateFlow<EngineState>(EngineState.Idle)
     val state: StateFlow<EngineState> = _state.asStateFlow()
 
-    suspend fun initialize(modelFile: File): Result<Unit> = withContext(dispatcher) { mutex.withLock {
-        val modelPath = modelFile.absolutePath
-        if (engine != null && activeModelPath == modelPath) {
+    /**
+     * [modelKey] identifies the verified content, not the file name. Replacing the artifact
+     * at one path therefore cannot reuse an engine loaded from the previous bytes.
+     */
+    suspend fun initialize(modelFile: File, modelKey: String): Result<Unit> = withContext(dispatcher) { mutex.withLock {
+        if (engine != null && activeModelKey == modelKey) {
             return@withLock Result.success(Unit)
         }
 
-        _state.value = EngineState.Initializing(modelPath)
+        _state.value = EngineState.Initializing(modelKey)
         var candidate: ManagedEngine? = null
         try {
             // Do not hold two native engines while replacing the active model.
@@ -72,15 +75,15 @@ class LlmEngineManager internal constructor(
             candidate.initialize()
             currentCoroutineContext().ensureActive()
             engine = candidate
-            activeModelPath = modelPath
-            _state.value = EngineState.Ready(modelPath)
+            activeModelKey = modelKey
+            _state.value = EngineState.Ready(modelKey)
             Result.success(Unit)
         } catch (error: Exception) {
             try {
                 candidate?.close()
             } catch (cleanup: Exception) {
                 engine = candidate
-                activeModelPath = null
+                activeModelKey = null
                 error.addSuppressed(cleanup)
             }
             if (error is CancellationException) {
@@ -116,7 +119,7 @@ class LlmEngineManager internal constructor(
 
     private fun closeEngine() {
         val previous = engine
-        activeModelPath = null
+        activeModelKey = null
         previous?.close()
         engine = null
     }

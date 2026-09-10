@@ -9,7 +9,8 @@ import thwiply.elopenmike.com.llm.engine.LlmEngineManager
 import thwiply.elopenmike.com.llm.model.DownloadState
 import thwiply.elopenmike.com.llm.model.ModelManager
 import thwiply.elopenmike.com.llm.model.ModelPreset
-import thwiply.elopenmike.com.llm.model.ModelLoadState
+import thwiply.elopenmike.com.llm.model.ModelArtifactState
+import thwiply.elopenmike.com.llm.model.isRejectedInstallation
 
 @Singleton
 class InferenceCoordinator internal constructor(
@@ -28,7 +29,7 @@ class InferenceCoordinator internal constructor(
         CoroutineScope(SupervisorJob() + Dispatchers.IO), Dispatchers.IO)
 
     val selection = repository.state
-    val qwenLoadState = models.loadState
+    val qwenArtifact = models.state
     private val mutableReadiness = MutableStateFlow<ProviderReadiness>(ProviderReadiness.Checking)
     val readiness = mutableReadiness.asStateFlow()
     private val mutableNanoState = MutableStateFlow<NanoState>(NanoState.Checking)
@@ -48,7 +49,7 @@ class InferenceCoordinator internal constructor(
 
     init {
         scope.launch {
-            combine(selection, models.activeModel, engine.state, nanoState, models.loadState) { _, _, _, _, _ -> Unit }
+            combine(selection, models.state, engine.state, nanoState) { _, _, _, _ -> Unit }
                 .collect { refreshReadiness() }
         }
     }
@@ -70,20 +71,10 @@ class InferenceCoordinator internal constructor(
         when (selectedProvider()) {
             ModelProvider.QWEN -> {
                 models.awaitLoaded()
-                if (models.loadState.value is ModelLoadState.Failed) models.refreshInstalledModel()
-                (models.loadState.value as? ModelLoadState.Failed)?.let {
-                    throw InferenceFailure(FailureKind.MODEL_STORAGE, it.cause)
-                }
-                refreshReadiness()
-                if (models.isModelAvailable() && readiness.value != ProviderReadiness.Ready) {
-                    mutableReadiness.value = ProviderReadiness.Initializing
-                    withTimeout(INFERENCE_TIMEOUT_MS) {
-                        engine.initialize(models.modelFile).getOrElse {
-                            throw InferenceFailure(FailureKind.RUNTIME, it)
-                        }
-                    }
-                    refreshReadiness()
-                }
+                // prepare() also runs automatically on Lab entry and foreground regain, so it
+                // never revalidates: that would re-hash the whole artifact on every entry for a
+                // state that does not clear itself. Revalidation belongs to verifyQwen alone.
+                prepareQwen(models.state.value)
             }
             ModelProvider.GEMINI_NANO -> checkNanoUnderLease()
         }
@@ -184,6 +175,58 @@ class InferenceCoordinator internal constructor(
         }
     }.buffer(0)
 
+    /** Only a fully verified artifact may reach native initialization. */
+    private suspend fun prepareQwen(artifact: ModelArtifactState) {
+        when (artifact) {
+            is ModelArtifactState.Failed ->
+                throw InferenceFailure(requireNotNull(artifact.rejectionKind()), artifact.cause)
+            is ModelArtifactState.Corrupt -> throw InferenceFailure(requireNotNull(artifact.rejectionKind()))
+            is ModelArtifactState.Ready -> {
+                refreshReadiness()
+                if (readiness.value == ProviderReadiness.Ready) return
+                mutableReadiness.value = ProviderReadiness.Initializing
+                withTimeout(INFERENCE_TIMEOUT_MS) {
+                    engine.initialize(models.verifiedFile(artifact), artifact.engineKey).getOrElse {
+                        throw InferenceFailure(FailureKind.RUNTIME, it)
+                    }
+                }
+                refreshReadiness()
+            }
+            // Missing, Verifying and Removing are already visible; none may start a download.
+            else -> refreshReadiness()
+        }
+    }
+
+    /** Explicit revalidation of the installed artifact. It never starts a network download. */
+    suspend fun verifyQwen() = exclusive {
+        requireForeground()
+        if (selectedProvider() != ModelProvider.QWEN) throw InferenceFailure(FailureKind.UNAVAILABLE)
+        models.refreshInstalledModel()
+        // Revalidation is the only path that can demote a verified artifact; prepare() never
+        // re-hashes. Do not keep a resident engine for weights this app no longer accepts.
+        if (models.state.value !is ModelArtifactState.Ready) engine.close()
+        refreshReadiness()
+    }
+
+    /**
+     * Explicit recovery from a rejected installation. The engine is released first so the
+     * discard cannot race a resident native model; manual tasks and preferences are untouched.
+     */
+    suspend fun discardRejectedQwen() = exclusive {
+        requireForeground()
+        if (selectedProvider() != ModelProvider.QWEN) throw InferenceFailure(FailureKind.UNAVAILABLE)
+        if (!models.state.value.isRejectedInstallation()) return@exclusive
+        try {
+            engine.close()
+            // ModelManager publishes Removing under its own mutex; refreshReadiness maps it.
+            // One publisher per state, so nothing can contradict the artifact flow.
+            models.discardRejectedInstallation()
+        } finally {
+            // Recompute from the artifact state that actually exists, including on cancellation.
+            refreshReadiness()
+        }
+    }
+
     private suspend fun checkNanoUnderLease() {
         updateNano(NanoState.Checking)
         nanoOperation(STATUS_TIMEOUT_MS) {
@@ -261,7 +304,7 @@ class InferenceCoordinator internal constructor(
 
     private fun refreshReadiness() = synchronized(lock) {
         val current = selection.value
-        val modelLoad = models.loadState.value
+        val artifact = models.state.value
         mutableReadiness.value = when {
             current.failure != null -> ProviderReadiness.Failed(InferenceFailure(FailureKind.PREFERENCE, current.failure))
             current.provider == null -> ProviderReadiness.Checking
@@ -275,15 +318,24 @@ class InferenceCoordinator internal constructor(
                 is NanoState.Failed -> ProviderReadiness.Failed(nano.failure)
             }
             qwenDownloading -> ProviderReadiness.Downloading
-            modelLoad == ModelLoadState.Loading -> ProviderReadiness.Checking
-            modelLoad is ModelLoadState.Failed -> ProviderReadiness.Failed(
-                InferenceFailure(FailureKind.MODEL_STORAGE, modelLoad.cause),
+            artifact is ModelArtifactState.Verifying -> ProviderReadiness.Checking
+            artifact is ModelArtifactState.Missing -> ProviderReadiness.Missing
+            artifact is ModelArtifactState.Removing -> ProviderReadiness.Removing
+            artifact is ModelArtifactState.Failed -> ProviderReadiness.Failed(
+                InferenceFailure(requireNotNull(artifact.rejectionKind()), artifact.cause),
             )
-            !models.isModelAvailable() -> ProviderReadiness.Missing
+            artifact is ModelArtifactState.Corrupt -> ProviderReadiness.Failed(
+                InferenceFailure(requireNotNull(artifact.rejectionKind())),
+            )
             else -> when (val state = engine.state.value) {
                 EngineState.Idle -> ProviderReadiness.NeedsInitialization
                 is EngineState.Initializing -> ProviderReadiness.Initializing
-                is EngineState.Ready -> if (state.modelPath == models.modelFile.absolutePath) ProviderReadiness.Ready
+                // Engine readiness counts only for the artifact that is verified right now.
+                // Guarded, not cast: this `when` is boolean, so the compiler cannot prove a
+                // future artifact state was mapped above.
+                is EngineState.Ready ->
+                    if (artifact is ModelArtifactState.Ready && state.modelKey == artifact.engineKey)
+                        ProviderReadiness.Ready
                     else ProviderReadiness.NeedsInitialization
                 is EngineState.Failed -> ProviderReadiness.Failed(InferenceFailure(FailureKind.RUNTIME, state.cause))
             }

@@ -17,6 +17,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.rules.TemporaryFolder
+import thwiply.elopenmike.com.testing.verifiedArtifactFile
 import thwiply.elopenmike.com.llm.model.*
 import thwiply.elopenmike.com.testing.providerFixture
 import thwiply.elopenmike.com.testing.preferenceFixture
@@ -34,8 +35,7 @@ class OnboardingDownloadTest {
         val directory = temporaryFolder.newFolder("models")
         val preset = ModelPreset.QWEN_2_5_1_5B.copy(
             expectedBytes = bytes.size.toLong(),
-            sha256 = MessageDigest.getInstance("SHA-256").digest(bytes)
-                .joinToString("") { "%02x".format(it) },
+            sha256 = MessageDigest.getInstance("SHA-256").digest(bytes).toHexString(),
         )
         val partial = File(directory, "${preset.fileName}.part")
         partial.writeBytes(bytes.copyOfRange(0, 4))
@@ -56,7 +56,7 @@ class OnboardingDownloadTest {
             chain.proceed(chain.request().newBuilder().url(server.url("/model")).build())
         }.build()
         val models = ModelManager(directory, client, listOf(preset))
-        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), models::isModelAvailable, preferenceFixture(temporaryFolder.newFolder())) { models.downloadModel(preset) }
+        val viewModel = OnboardingViewModel(providerFixture(temporaryFolder.newFolder()), preferenceFixture(temporaryFolder.newFolder())) { models.downloadModel(preset) }
         try {
             viewModel.startDownload()
             runCurrent()
@@ -66,7 +66,7 @@ class OnboardingDownloadTest {
             runCurrent()
             assertEquals(1, server.requestCount)
             assertEquals("bytes=4-", server.takeRequest().getHeader("Range"))
-            assertFalse(models.isModelAvailable())
+            assertFalse(models.state.value is ModelArtifactState.Ready)
             assertTrue(partial.exists())
             release.countDown()
             viewModel.uiState.first { it == DownloadState.Idle }
@@ -75,7 +75,7 @@ class OnboardingDownloadTest {
             assertEquals(DownloadState.Success, viewModel.uiState.first {
                 it is DownloadState.Success || it is DownloadState.Error
             })
-            assertArrayEquals(bytes, models.modelFile.readBytes())
+            assertArrayEquals(bytes, models.verifiedArtifactFile().readBytes())
         } finally {
             release.countDown()
             viewModel.pauseDownload()

@@ -16,6 +16,7 @@ import thwiply.elopenmike.com.testing.providerFixture
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaygroundViewModelTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
+    private lateinit var modelsDirectory: File
     @Before fun setUp() { Dispatchers.setMain(StandardTestDispatcher()) }
     @After fun tearDown() { Dispatchers.resetMain() }
 
@@ -56,9 +57,41 @@ class PlaygroundViewModelTest {
         assertEquals(1, fake.generations)
     }
 
+    @Test fun `entering Lab never revalidates rejected weights on its own`() = runTest {
+        val models = models(installed = true)
+        corruptInstalledFixture()
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), qwenEngine(), models))
+        vm.prepareEngine()
+        runCurrent()
+        assertEquals(FailureKind.MODEL_CORRUPT, failureKind(vm))
+
+        repairInstalledFixture()
+        vm.prepareEngine()
+        runCurrent()
+
+        // Automatic entry must not re-hash the artifact; only the explicit control may.
+        assertEquals(FailureKind.MODEL_CORRUPT, failureKind(vm))
+    }
+
+    @Test fun `the explicit Lab retry revalidates repaired weights and reaches ready`() = runTest {
+        val models = models(installed = true)
+        corruptInstalledFixture()
+        val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), qwenEngine(), models))
+        vm.prepareEngine()
+        runCurrent()
+        assertEquals(FailureKind.MODEL_CORRUPT, failureKind(vm))
+
+        repairInstalledFixture()
+        vm.retry()
+        runCurrent()
+
+        assertEquals(ProviderReadiness.Ready, vm.readiness.value)
+        assertNull(vm.generationFailure.value)
+    }
+
     @Test fun `readiness rejects an engine for a different installed path`() = runTest {
         val engine = LlmEngineManager(StandardTestDispatcher(testScheduler)) { FakeEngine() }
-        engine.initialize(temporaryFolder.newFile("other.litertlm"))
+        temporaryFolder.newFile("other.litertlm").let { engine.initialize(it, it.absolutePath) }
         val vm = PlaygroundViewModel(providerFixture(temporaryFolder.newFolder(), engine, models(true)))
         vm.generate("wrong engine", false)
         runCurrent()
@@ -244,16 +277,20 @@ class PlaygroundViewModelTest {
         override fun close() { closes++ }
     }
 
-    // Exercises the existing length-based restart adoption, not new digest verification.
-    private fun models(installed: Boolean): ModelManager {
-        val directory = temporaryFolder.newFolder()
-        val preset = ModelPreset.QWEN_2_5_1_5B.copy(fileName = "test.litertlm", expectedBytes = 4)
+    // The fixture artifact carries its own digest, so an installed file still has to verify.
+    private fun TestScope.models(installed: Boolean): ModelManager {
+        modelsDirectory = temporaryFolder.newFolder()
         if (installed) {
-            File(directory, "active-model").writeText(preset.id)
-            File(directory, preset.fileName).writeText("test")
+            File(modelsDirectory, "active-model").writeText(FIXTURE_PRESET.id)
+            installedFixture().writeBytes(FIXTURE_BYTES)
         }
-        return ModelManager(directory, OkHttpClient(), listOf(preset))
+        return ModelManager(
+            modelsDirectory, OkHttpClient(), listOf(FIXTURE_PRESET), backgroundScope,
+            StandardTestDispatcher(testScheduler),
+        )
     }
+
+    private fun installedFixture() = File(modelsDirectory, FIXTURE_PRESET.fileName)
 
     private class FakeEngine(private val cancel: Boolean = false) : ManagedEngine {
         var generations = 0
@@ -267,5 +304,23 @@ class PlaygroundViewModelTest {
             }
             override fun close() = Unit
         }
+    }
+
+    private fun TestScope.qwenEngine() = LlmEngineManager(StandardTestDispatcher(testScheduler)) { FakeEngine() }
+
+    private fun failureKind(vm: PlaygroundViewModel) =
+        (vm.readiness.value as ProviderReadiness.Failed).failure.kind
+
+    private fun corruptInstalledFixture() = installedFixture().writeBytes(ByteArray(FIXTURE_BYTES.size))
+
+    private fun repairInstalledFixture() = installedFixture().writeBytes(FIXTURE_BYTES)
+
+    private companion object {
+        val FIXTURE_BYTES = "verified fixture weights".toByteArray()
+        val FIXTURE_PRESET = ModelPreset.QWEN_2_5_1_5B.copy(
+            fileName = "test.litertlm",
+            expectedBytes = FIXTURE_BYTES.size.toLong(),
+            sha256 = java.security.MessageDigest.getInstance("SHA-256").digest(FIXTURE_BYTES).toHexString(),
+        )
     }
 }

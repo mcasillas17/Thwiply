@@ -37,7 +37,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import thwiply.elopenmike.com.data.preferences.*
 import thwiply.elopenmike.com.llm.model.DownloadState
-import thwiply.elopenmike.com.llm.model.ModelLoadState
+import thwiply.elopenmike.com.llm.model.ArtifactDefect
+import thwiply.elopenmike.com.llm.model.ModelArtifactState
+import thwiply.elopenmike.com.llm.model.ModelPreset
 import thwiply.elopenmike.com.llm.provider.*
 import thwiply.elopenmike.com.ui.main.*
 import thwiply.elopenmike.com.ui.onboarding.OnboardingContent
@@ -137,7 +139,7 @@ class AdaptiveContentTest {
 
     @Test fun longSetupStatesKeepActionsReachableAtLargeText() {
         var state: DownloadState by mutableStateOf(DownloadState.Idle)
-        var load: ModelLoadState by mutableStateOf(ModelLoadState.Loaded)
+        var load: ModelArtifactState by mutableStateOf(ModelArtifactState.Ready(ModelPreset.QWEN_2_5_1_5B))
         var preferences by mutableStateOf(PreferenceState(AppPreferences()))
         compose.setContent {
             val density = LocalDensity.current
@@ -148,7 +150,7 @@ class AdaptiveContentTest {
                             OnboardingContent(
                                 state, ProviderSelection(ModelProvider.QWEN), NanoState.Unavailable,
                                 state is DownloadState.Downloading, {}, {}, {}, {}, {}, {}, null,
-                                load, preferences,
+                                load, preferences = preferences,
                             )
                         }
                     }
@@ -182,7 +184,13 @@ class AdaptiveContentTest {
             }
             assertFullyVisible(compose.onNodeWithText(text(R.string.setup_download)).performScrollTo())
         }
-        for (model in listOf(ModelLoadState.Loading, ModelLoadState.Failed(IllegalStateException()))) {
+        // The rejected states render the longest copy and the most recovery controls, so they
+        // are the strongest case for "actions stay reachable at large text".
+        for (model in listOf(
+            ModelArtifactState.Verifying,
+            ModelArtifactState.Failed(IllegalStateException()),
+            ModelArtifactState.Corrupt(ModelPreset.QWEN_2_5_1_5B, ArtifactDefect.DIGEST_MISMATCH),
+        )) {
             compose.runOnIdle { load = model }
             assertFullyVisible(compose.onNodeWithContentDescription(text(R.string.setup_back)))
         }

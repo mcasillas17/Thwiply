@@ -18,8 +18,7 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val preferences = themeManager.preferences
-    val activeModel = modelManager.activeModel
-    val modelLoadState = modelManager.loadState
+    val qwenArtifact = modelManager.state
     val selection = selectionRepository.state
 
     fun setThemeMode(mode: ThemeMode) {

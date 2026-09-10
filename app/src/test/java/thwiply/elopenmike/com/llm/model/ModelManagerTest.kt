@@ -15,12 +15,12 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import thwiply.elopenmike.com.testing.verifiedArtifactFile
 import java.io.File
 import java.security.MessageDigest
 
@@ -53,9 +53,11 @@ class ModelManagerTest {
         val manager = ModelManager(modelsDir, redirectedClient(), listOf(preset))
 
         manager.awaitLoaded()
-        assertEquals(ModelLoadState.Loaded, manager.loadState.value)
-        assertFalse(manager.isModelAvailable())
-        assertNull(manager.activeModel.value)
+        assertEquals(
+            ModelArtifactState.Corrupt(preset, ArtifactDefect.FILE_MISSING),
+            manager.state.value,
+        )
+        assertFalse(manager.state.value is ModelArtifactState.Ready)
     }
 
     @Test
@@ -68,8 +70,8 @@ class ModelManagerTest {
         val result = manager.downloadModel(preset).last()
 
         assertEquals(DownloadState.Success, result)
-        assertEquals(preset, manager.activeModel.value)
-        assertArrayEquals(modelBytes, manager.modelFile.readBytes())
+        assertEquals(ModelArtifactState.Ready(preset), manager.state.value)
+        assertArrayEquals(modelBytes, manager.verifiedArtifactFile().readBytes())
         assertFalse(File(modelsDir, "${preset.fileName}.part").exists())
     }
 
@@ -92,8 +94,8 @@ class ModelManagerTest {
         val result = manager.downloadModel(replacementPreset).last()
 
         assertTrue(result is DownloadState.Error)
-        assertEquals(activePreset, manager.activeModel.value)
-        assertArrayEquals(activeBytes, manager.modelFile.readBytes())
+        assertEquals(ModelArtifactState.Ready(activePreset), manager.state.value)
+        assertArrayEquals(activeBytes, manager.verifiedArtifactFile().readBytes())
         assertFalse(File(modelsDir, "${replacementPreset.fileName}.part").exists())
     }
 
@@ -116,7 +118,7 @@ class ModelManagerTest {
 
         assertEquals(DownloadState.Success, result)
         assertEquals("bytes=9-", server.takeRequest().getHeader("Range"))
-        assertArrayEquals(modelBytes, manager.modelFile.readBytes())
+        assertArrayEquals(modelBytes, manager.verifiedArtifactFile().readBytes())
     }
 
     @Test
@@ -130,11 +132,11 @@ class ModelManagerTest {
 
         assertEquals(DownloadState.Success, result)
         assertEquals(0, server.requestCount)
-        assertArrayEquals(modelBytes, manager.modelFile.readBytes())
+        assertArrayEquals(modelBytes, manager.verifiedArtifactFile().readBytes())
     }
 
     @Test
-    fun `construction leaves metadata reads on the supplied loader dispatcher`() = runTest {
+    fun `construction leaves verification on the supplied loader dispatcher`() = runTest {
         val bytes = "test".toByteArray()
         val preset = preset("installed", bytes)
         val manager = ModelManager(
@@ -142,11 +144,9 @@ class ModelManagerTest {
         )
         File(modelsDir, "active-model").writeText(preset.id)
         File(modelsDir, preset.fileName).writeBytes(bytes)
-        assertEquals(ModelLoadState.Loading, manager.loadState.value)
-        assertNull(manager.activeModel.value)
+        assertEquals(ModelArtifactState.Verifying, manager.state.value)
         runCurrent()
-        assertEquals(ModelLoadState.Loaded, manager.loadState.value)
-        assertEquals(preset, manager.activeModel.value)
+        assertEquals(ModelArtifactState.Ready(preset), manager.state.value)
     }
 
     @Test
@@ -159,14 +159,14 @@ class ModelManagerTest {
             modelsDir, redirectedClient(), listOf(preset), backgroundScope, StandardTestDispatcher(testScheduler),
         )
         runCurrent()
-        assertTrue(manager.loadState.value is ModelLoadState.Failed)
-        assertTrue((manager.loadState.value as ModelLoadState.Failed).cause is java.io.IOException)
-        assertFalse(manager.isModelAvailable())
+        val failed = manager.state.value as ModelArtifactState.Failed
+        assertTrue(failed.cause is java.io.IOException)
+        assertTrue(failed.cause.message!!.contains("bound"))
+        assertFalse(manager.state.value is ModelArtifactState.Ready)
         assertArrayEquals(bytes, installed.readBytes())
         metadata.writeText(preset.id)
         manager.refreshInstalledModel()
-        assertEquals(ModelLoadState.Loaded, manager.loadState.value)
-        assertEquals(preset, manager.activeModel.value)
+        assertEquals(ModelArtifactState.Ready(preset), manager.state.value)
         assertEquals(0, server.requestCount)
     }
 
@@ -198,8 +198,7 @@ class ModelManagerTest {
         .build()
 
     private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")
-        .digest(this)
-        .joinToString("") { "%02x".format(it) }
+        .digest(this).toHexString()
 
     private fun ByteArray.toOkioBuffer(): okio.Buffer = okio.Buffer().write(this)
 }

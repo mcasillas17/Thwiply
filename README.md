@@ -40,7 +40,7 @@ the additional audience and data-disclosure gates.
 
 ## ✨ Features
 
-- **Verified Model Installation:** Resumable download, exact-size validation, SHA-256 verification, and atomic activation.
+- **Verified Model Installation:** Resumable download, exact-size validation, SHA-256 verification, and atomic activation — revalidated in full on every launch, so damaged weights are reported instead of loaded.
 - **Two Explicit On-Device Providers:** Qwen 2.5 1.5B through LiteRT-LM, or optional Gemini Nano through ML Kit/AICore on supported devices. Selection persists; failures never silently switch providers or download Qwen.
 - **Foreground LLM Lab:** Bounded streaming experiments, Stop, safe failure states, and character-based metrics. JSON output remains experimental: it is neither validated product triage nor automatically persisted as tasks.
 - **Durable Today Tasks:** Manual tasks, completion-state updates, and deletions survive app and database recreation through the repository layer.
@@ -139,7 +139,7 @@ notification-data rules, or existing Qwen weights.
 
 | Provider | Setup and ownership |
 |---|---|
-| Qwen 2.5 1.5B | **Download or resume model** (or **Retry download**) installs the revision-pinned, 1.49 GiB LiteRT-LM artifact in Thwiply's private no-backup storage. Size and SHA-256 checks precede activation. Existing installations remain available. |
+| Qwen 2.5 1.5B | **Download or resume model** (or **Retry download**) installs the revision-pinned, 1.49 GiB LiteRT-LM artifact in Thwiply's private no-backup storage. Size and SHA-256 checks precede activation, and the same checks run again on every launch before the artifact is adopted. Existing installations remain available. |
 | Gemini Nano | Read and confirm the adult-use/SDK-metrics notice to select it. **Check availability** queries the SDK; **Prepare or download Gemini Nano** then requires separate download consent. Android manages the shared model; this is not another downloadable `.litertlm` preset. Thwiply cannot delete AICore's shared model. |
 
 Nano distinguishes checking, unavailable, downloadable, downloading, ready and
@@ -150,8 +150,65 @@ invented percentage. A failed or unavailable Nano selection stays selected,
 including after restart; Qwen is an explicit alternative, never a fallback.
 
 Back and **Return to app** return to the previous tab. Setup completion does not
-redirect you away from manual work. Qwen metadata is read off the main thread;
-read failures are visible without preventing Today, Settings or Nano use.
+redirect you away from manual work. Qwen verification runs off the main thread;
+every state is visible without preventing Today, Settings or Nano use.
+
+#### Qwen artifact states
+
+Thwiply's own Qwen artifact has one explicit state. It is never inferred from the
+presence of a file: after every process start, and on every explicit re-check, the
+whole approved artifact is streamed through SHA-256 in a bounded buffer and its
+size is confirmed, so an equal-length edit or a truncation is rejected instead of
+adopted. Nothing is hashed on the main thread, and manual Today tasks, the
+notification-data deletion control and navigation stay usable in every state.
+
+| State | What it means | What you can do |
+|---|---|---|
+| **Checking** | Size and SHA-256 are being revalidated off the main thread. | Wait, or keep using Today and Settings. |
+| **Not installed** | No activation record exists. | **Download or resume model**. |
+| **Ready** | The installed bytes match the approved size and digest. | Open Lab to initialize the engine. |
+| **Damaged** | The record names an approved model whose bytes are not the approved release, or whose file is gone. | **Check installed model again**, download it again, or **Remove damaged model** / **Clear installation record**. |
+| **Removing** | An explicit discard of rejected bytes is running. | Wait; nothing else is removed. |
+| **Unreadable** | Storage could not be read. | **Check installed model again**. |
+| **Record unusable** | The activation record is malformed, or names a model this build does not approve. | **Clear installation record**, then download again. Re-checking is not offered: re-reading the same record fails the same way. |
+| **Removal unfinished** | A discard could not complete, so storage and the record may disagree. | **Check installed model again**, then clear whatever remains. |
+
+Re-checking never starts a network download, and removal only ever deletes
+Thwiply's own damaged artifact and its activation record — never manual tasks,
+provider choices, preferences, or partially downloaded data you can still resume.
+A replacement download that fails verification leaves a working installation
+untouched; a working installation that later fails revalidation stops being
+reported as ready.
+
+Three kinds of readiness are separate and are shown separately. **Artifact
+verification** is about Thwiply's own Qwen file. **Engine readiness** is about the
+LiteRT-LM engine actually being loaded, and it is keyed to the verified content,
+so replacing the file at the same path cannot reuse an engine loaded from the
+previous bytes. **AICore readiness** belongs to Android's shared Gemini Nano model,
+which Thwiply neither verifies nor deletes. A damaged Qwen artifact never makes
+Nano unavailable, and Nano's availability never makes Qwen ready.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Checking: launch or explicit re-check
+    Checking --> NotInstalled: no activation record
+    Checking --> Ready: size and SHA-256 match
+    Checking --> Damaged: equal-length edit, truncation, oversize or missing file
+    Checking --> Unreadable: storage read error
+    Checking --> RecordUnusable: malformed or unapproved record
+    NotInstalled --> Ready: verified download activates (digest already checked)
+    Ready --> Checking: explicit re-check
+    Damaged --> Ready: verified download activates (digest already checked)
+    Damaged --> Checking: explicit re-check
+    Damaged --> Removing: remove damaged model
+    Unreadable --> Checking: explicit re-check
+    RecordUnusable --> Removing: clear installation record
+    Removing --> NotInstalled: only Thwiply's artifact and record removed
+    Removing --> RemovalUnfinished: removal could not finish
+    RemovalUnfinished --> Checking: explicit re-check
+    Ready --> EngineReady: Lab initializes, keyed to the verified digest
+    EngineReady --> Checking: explicit re-check withdraws readiness first
+```
 
 Interrupted downloads retain partial data and resume when supported by the
 server. Leaving setup or losing top foreground cancels Thwiply's operation; an
@@ -196,7 +253,7 @@ flowchart TD
     lab -->|Select provider or open setup| setup
     setup -->|Back or Return to app: previous tab| shell
     setup --> choice["Persist explicit provider choice"]
-    choice -->|Qwen: explicit download| qwen["ModelManager: pinned size/SHA-256 activation"]
+    choice -->|Qwen: explicit download| qwen["ModelManager: pinned size/SHA-256 activation<br/>and the same revalidation on every launch"]
     choice -->|Nano: check, then explicit preparation consent| nano["ML Kit: Android-managed AICore model"]
     lab --> gate["Foreground + selected-ready provider + exclusive operation"]
     gate -->|Qwen| engine["Process-owned LiteRT-LM engine"]

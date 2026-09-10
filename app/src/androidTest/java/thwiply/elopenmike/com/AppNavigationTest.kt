@@ -143,7 +143,8 @@ class AppNavigationTest {
         applicationScope.cancel()
     }
 
-    @Test fun missingModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("missing")
+    @Test fun missingModelKeepsManualWorkAndSettingsAvailable() =
+        unavailableLaunch("missing", R.string.lab_missing)
     @Test fun fakeHostMatchesProductionWindowConfiguration() {
         launch()
         compose.runOnIdle {
@@ -313,9 +314,53 @@ class AppNavigationTest {
         compose.onNodeWithText(text(R.string.settings_version_label)).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(expectedVersion).performScrollTo().assertIsDisplayed()
     }
-    @Test fun partialDownloadKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("partial")
-    @Test fun truncatedModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("truncated")
-    @Test fun removedModelKeepsManualWorkAndSettingsAvailable() = unavailableLaunch("removed")
+    @Test fun partialDownloadKeepsManualWorkAndSettingsAvailable() =
+        unavailableLaunch("partial", R.string.lab_missing)
+    @Test fun truncatedModelKeepsManualWorkAndSettingsAvailable() =
+        unavailableLaunch("truncated", R.string.inference_model_corrupt)
+    @Test fun tamperedModelKeepsManualWorkAndSettingsAvailable() =
+        unavailableLaunch("tampered", R.string.inference_model_corrupt)
+    @Test fun removedModelKeepsManualWorkAndSettingsAvailable() =
+        unavailableLaunch("removed", R.string.qwen_corrupt_file_missing)
+
+    /** Revalidation is explicit, observable, and never reaches the network. */
+    @Test fun damagedModelRevalidatesExplicitlyWithoutDownloading() {
+        launch("tampered")
+        addManualTask()
+        tab("Settings")
+        openSetup()
+        compose.onNodeWithText(text(R.string.qwen_corrupt)).performScrollTo().assertIsDisplayed()
+
+        File(modelDirectory, "fixture.litertlm").writeText("test")
+        compose.onNodeWithText(text(R.string.qwen_verify_again)).performScrollTo().performClick()
+        compose.waitUntil(10_000) { setup.qwenArtifact.value is ModelArtifactState.Ready }
+
+        assertEquals(0, downloadStarts)
+        back()
+        tab("Today")
+        awaitText("Synthetic manual task").assertIsDisplayed()
+    }
+
+    /** Discarding removes only the damaged artifact, never manual work or the provider choice. */
+    @Test fun damagedModelDiscardRemovesOnlyTheDamagedWeights() {
+        launch("tampered")
+        addManualTask()
+        tab("Settings")
+        openSetup()
+
+        compose.onNodeWithText(text(R.string.qwen_discard)).performScrollTo().performClick()
+        compose.waitUntil(10_000) { setup.qwenArtifact.value is ModelArtifactState.Missing }
+
+        assertFalse(File(modelDirectory, "fixture.litertlm").exists())
+        assertFalse(File(modelDirectory, "active-model").exists())
+        assertEquals(0, downloadStarts)
+        assertEquals(ModelProvider.QWEN, coordinator.selection.value.provider)
+        back()
+        tab("Today")
+        awaitText("Synthetic manual task").assertIsDisplayed()
+        tab("Settings")
+        compose.onNodeWithText("Delete notification data and rules").performScrollTo().assertIsEnabled()
+    }
 
     @Test fun unreadableQwenMetadataKeepsManualWorkAndSettingsAvailable() {
         launch("unreadable")
@@ -323,7 +368,7 @@ class AppNavigationTest {
         tab("Settings")
         compose.onNodeWithText("Delete notification data and rules").performScrollTo().assertIsEnabled()
         openSetup()
-        compose.onNodeWithText(text(R.string.qwen_metadata_failed)).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.qwen_read_failed)).performScrollTo().assertIsDisplayed()
         back()
         tab("Today")
         awaitText("Synthetic manual task").assertIsDisplayed()
@@ -335,19 +380,22 @@ class AppNavigationTest {
         tab("Lab")
         compose.waitUntil(5_000) { coordinator.busy.value }
         compose.onNodeWithText(text(R.string.nano_checking)).assertDoesNotExist()
-        compose.onAllNodesWithText(text(R.string.qwen_metadata_checking)).assertCountEquals(2)
+        compose.onAllNodesWithText(text(R.string.qwen_verifying)).assertCountEquals(2)
     }
 
-    private fun unavailableLaunch(modelCondition: String) {
+    private fun unavailableLaunch(modelCondition: String, labMessage: Int) {
         launch(modelCondition)
         addManualTask()
         tab("Lab")
+        // Wait for a resolved verdict, not for Missing: a rejected artifact settles on a
+        // failure state instead. Lab renders the provider state in more than one place;
+        // every copy must be truthful.
         compose.waitUntil(10_000) {
-            coordinator.readiness.value == ProviderReadiness.Missing && !coordinator.busy.value &&
+            coordinator.readiness.value != ProviderReadiness.Checking && !coordinator.busy.value &&
                 ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
                     ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom == 0
         }
-        awaitText(text(R.string.lab_missing)).assertIsDisplayed()
+        compose.onAllNodesWithText(text(labMessage)).onFirst().assertIsDisplayed()
         compose.onNodeWithText("Thwip Test").performScrollTo().assertIsNotEnabled()
         tab("Settings")
         openSetup()
@@ -468,13 +516,18 @@ class AppNavigationTest {
         modelDirectory = File(context.cacheDir, "fnd02-${System.nanoTime()}").also { it.mkdirs() }
         val preset = ModelPreset.QWEN_2_5_1_5B.copy(
             fileName = "fixture.litertlm", expectedBytes = 4,
-            sha256 = MessageDigest.getInstance("SHA-256").digest("test".toByteArray())
-                .joinToString("") { "%02x".format(it) },
+            sha256 = MessageDigest.getInstance("SHA-256").digest("test".toByteArray()).toHexString(),
         )
-        if (modelCondition != "missing") File(modelDirectory, "active-model").writeText(preset.id)
+        // Production writes the activation record only after a candidate digest verified, so an
+        // interrupted download has no record at all.
+        if (modelCondition !in setOf("missing", "partial")) {
+            File(modelDirectory, "active-model").writeText(preset.id)
+        }
         when (modelCondition) {
             "installed" -> File(modelDirectory, preset.fileName).writeText("test")
             "truncated" -> File(modelDirectory, preset.fileName).writeText("bad")
+            // Same length as the approved artifact, different bytes: only a digest rejects it.
+            "tampered" -> File(modelDirectory, preset.fileName).writeText("tes7")
             "partial" -> File(modelDirectory, "${preset.fileName}.part").writeText("pa")
             "removed" -> File(modelDirectory, preset.fileName).apply {
                 writeText("test")
@@ -530,7 +583,7 @@ class AppNavigationTest {
         )
         coordinator.setForeground(true)
         val playground = PlaygroundViewModel(coordinator)
-        setup = OnboardingViewModel(coordinator, models::isModelAvailable, preferences) {
+        setup = OnboardingViewModel(coordinator, preferences) {
             if (downloadGate != null) coordinator.downloadQwen(preset) else flow {
                 downloadStarts++
                 downloads.value = DownloadState.Downloading(0)

@@ -15,9 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import thwiply.elopenmike.com.llm.model.DownloadState
-import thwiply.elopenmike.com.llm.model.ModelManager
 import thwiply.elopenmike.com.llm.model.ModelPreset
-import thwiply.elopenmike.com.llm.model.ModelLoadState
+import thwiply.elopenmike.com.llm.model.ModelArtifactState
 import thwiply.elopenmike.com.llm.provider.InferenceCoordinator
 import thwiply.elopenmike.com.llm.provider.InferenceFailure
 import thwiply.elopenmike.com.llm.provider.ModelProvider
@@ -26,30 +25,23 @@ import thwiply.elopenmike.com.data.preferences.AppPreferencesRepository
 @HiltViewModel
 class OnboardingViewModel internal constructor(
     private val coordinator: InferenceCoordinator,
-    private val isModelAvailable: () -> Boolean,
     private val preferenceRepository: AppPreferencesRepository,
     private val downloadModel: (ModelPreset) -> Flow<DownloadState>,
 ) : ViewModel() {
     @Inject constructor(
-        modelManager: ModelManager,
         coordinator: InferenceCoordinator,
         preferences: AppPreferencesRepository,
-    ) : this(
-        coordinator,
-        modelManager::isModelAvailable,
-        preferences,
-        coordinator::downloadQwen,
-    )
+    ) : this(coordinator, preferences, coordinator::downloadQwen)
 
-    private val _uiState = MutableStateFlow<DownloadState>(
-        if (isModelAvailable()) DownloadState.Success else DownloadState.Idle,
-    )
+    // The artifact collector below is the only publisher of this state; it emits the current
+    // value undispatched at construction, so there is no second source to keep in step.
+    private val _uiState = MutableStateFlow<DownloadState>(DownloadState.Idle)
     val uiState: StateFlow<DownloadState> = _uiState.asStateFlow()
     val selection = coordinator.selection
     val nanoState = coordinator.nanoState
     val busy = coordinator.busy
     val foreground = coordinator.foreground
-    val qwenLoadState = coordinator.qwenLoadState
+    val qwenArtifact = coordinator.qwenArtifact
     val preferences = preferenceRepository.state
     private val _failure = MutableStateFlow<InferenceFailure?>(null)
     val failure = _failure.asStateFlow()
@@ -68,12 +60,25 @@ class OnboardingViewModel internal constructor(
     }
 
     init {
-        viewModelScope.launch {
-            qwenLoadState.collect {
-                if (it == ModelLoadState.Loaded && isModelAvailable() && downloadJob?.isCompleted != false) {
-                    _uiState.value = DownloadState.Success
-                }
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            qwenArtifact.collect {
+                if (downloadJob?.isCompleted == false) return@collect
+                // Setup never keeps reporting a completed install for weights that stopped verifying.
+                if (it is ModelArtifactState.Ready) _uiState.value = DownloadState.Success
+                else if (_uiState.value is DownloadState.Success) _uiState.value = DownloadState.Idle
             }
+        }
+    }
+
+    /** Explicit revalidation of the installed artifact. It never starts a download. */
+    fun verifyModel() {
+        if (selection.value.provider == ModelProvider.QWEN) providerAction { coordinator.verifyQwen() }
+    }
+
+    /** Explicit discard of a rejected installation. Tasks and preferences are kept. */
+    fun discardRejectedModel() {
+        if (selection.value.provider == ModelProvider.QWEN) {
+            providerAction { coordinator.discardRejectedQwen() }
         }
     }
 
@@ -95,15 +100,16 @@ class OnboardingViewModel internal constructor(
         }
     }
 
-    fun checkNano() = nanoAction { coordinator.checkNano() }
+    fun checkNano() = providerAction { coordinator.checkNano() }
 
     fun downloadNano() {
         if (selection.value.provider == ModelProvider.GEMINI_NANO) {
-            nanoAction { coordinator.downloadNano() }
+            providerAction { coordinator.downloadNano() }
         }
     }
 
-    private fun nanoAction(action: suspend () -> Unit) {
+    /** One owned provider operation at a time; the coordinator still holds the real lease. */
+    private fun providerAction(action: suspend () -> Unit) {
         if (providerJob?.isActive == true || downloadJob?.isActive == true) return
         providerJob = viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             _failure.value = null

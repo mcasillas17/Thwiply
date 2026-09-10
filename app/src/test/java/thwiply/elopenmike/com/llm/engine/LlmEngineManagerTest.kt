@@ -20,7 +20,7 @@ class LlmEngineManagerTest {
         val engine = FakeEngine()
         val manager = LlmEngineManager { engine }
         val model = temporaryFolder.newFile("model.litertlm")
-        assertTrue(manager.initialize(model).isSuccess)
+        assertTrue(manager.initialize(model, model.absolutePath).isSuccess)
 
         val output = manager.generateStream("hello").toList()
 
@@ -37,12 +37,39 @@ class LlmEngineManagerTest {
         val first = temporaryFolder.newFile("first.litertlm")
         val second = temporaryFolder.newFile("second.litertlm")
 
-        assertTrue(manager.initialize(first).isSuccess)
-        assertTrue(manager.initialize(second).isSuccess)
+        assertTrue(manager.initialize(first, first.absolutePath).isSuccess)
+        assertTrue(manager.initialize(second, second.absolutePath).isSuccess)
 
         assertEquals(2, engines.size)
         assertTrue(engines.first().closed)
         assertEquals(EngineState.Ready(second.absolutePath), manager.state.value)
+    }
+
+    @Test
+    fun `replacing the artifact at one path cannot reuse the engine loaded from other bytes`() =
+        runBlocking {
+            val engines = mutableListOf<FakeEngine>()
+            val manager = LlmEngineManager { FakeEngine().also(engines::add) }
+            val model = temporaryFolder.newFile("model.litertlm")
+
+            assertTrue(manager.initialize(model, "qwen:first-digest").isSuccess)
+            assertTrue(manager.initialize(model, "qwen:second-digest").isSuccess)
+
+            assertEquals(2, engines.size)
+            assertTrue(engines.first().closed)
+            assertEquals(EngineState.Ready("qwen:second-digest"), manager.state.value)
+        }
+
+    @Test
+    fun `re-initializing the same verified content reuses the loaded engine`() = runBlocking {
+        val engines = mutableListOf<FakeEngine>()
+        val manager = LlmEngineManager { FakeEngine().also(engines::add) }
+        val model = temporaryFolder.newFile("model.litertlm")
+
+        assertTrue(manager.initialize(model, "qwen:same-digest").isSuccess)
+        assertTrue(manager.initialize(model, "qwen:same-digest").isSuccess)
+
+        assertEquals(1, engines.size)
     }
 
     private class FakeEngine : ManagedEngine {
